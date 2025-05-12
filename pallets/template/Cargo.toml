@@ -20,6 +20,7 @@ frame-system.workspace = true
 scale-info = { features = ["derive"], workspace = true }
 sp-std.workspace = true
 sp-runtime.workspace = true
+pallet-balances.workspace = true
 
 [dev-dependencies]
 sp-core = { default-features = true, workspace = true }
@@ -34,7 +35,8 @@ std = [
 	"frame-system/std",
 	"scale-info/std",
 	"sp-std/std",
-	"sp-runtime/std"
+	"sp-runtime/std",
+	"pallet-balances/std",
 ]
 runtime-benchmarks = [
 	"frame-benchmarking/runtime-benchmarks",
