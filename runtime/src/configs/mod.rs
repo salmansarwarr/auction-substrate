@@ -26,13 +26,13 @@
 // Substrate and Polkadot dependencies
 use frame_support::{
 	derive_impl, parameter_types,
-	traits::{ConstBool, ConstU128, ConstU32, ConstU64, ConstU8, VariantCountOf},
+	traits::{AsEnsureOriginWithArg, ConstBool, ConstU128, ConstU32, ConstU64, ConstU8, VariantCountOf},
 	weights::{
 		constants::{RocksDbWeight, WEIGHT_REF_TIME_PER_SECOND},
 		IdentityFee, Weight,
 	},
 };
-use frame_system::limits::{BlockLength, BlockWeights};
+use frame_system::{limits::{BlockLength, BlockWeights}, EnsureRoot, EnsureSigned};
 use pallet_transaction_payment::{ConstFeeMultiplier, FungibleAdapter, Multiplier};
 use sp_consensus_aura::sr25519::AuthorityId as AuraId;
 use sp_runtime::{traits::One, Perbill};
@@ -42,7 +42,7 @@ use sp_version::RuntimeVersion;
 use super::{
 	AccountId, Aura, Balance, Balances, Block, BlockNumber, Hash, Nonce, PalletInfo, Runtime,
 	RuntimeCall, RuntimeEvent, RuntimeFreezeReason, RuntimeHoldReason, RuntimeOrigin, RuntimeTask,
-	System, EXISTENTIAL_DEPOSIT, SLOT_DURATION, VERSION,
+	System, EXISTENTIAL_DEPOSIT, SLOT_DURATION, VERSION, MILLI_UNIT
 };
 
 const NORMAL_DISPATCH_RATIO: Perbill = Perbill::from_percent(75);
@@ -151,10 +151,103 @@ impl pallet_transaction_payment::Config for Runtime {
 	type WeightInfo = pallet_transaction_payment::weights::SubstrateWeight<Runtime>;
 }
 
+impl pallet_assets::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+
+    /// Balance type for assets (same as used elsewhere).
+    type Balance = u128;
+
+    /// Asset identifier (commonly u32).
+    type AssetId = u32;
+
+    /// Who can create new assets.
+    type CreateOrigin = AsEnsureOriginWithArg<EnsureSigned<AccountId>>;
+
+    /// Which currency is used to pay deposits (usually `Balances` pallet).
+    type Currency = Balances;
+
+    /// Who can forcibly manage assets.
+    type ForceOrigin = frame_system::EnsureRoot<AccountId>;
+
+    /// Deposit required to create a new asset.
+    type AssetDeposit = ConstU128<1_000_000_000_000>;
+
+    /// Deposit required to register a new account for an asset.
+    type AssetAccountDeposit = ConstU128<100_000_000>;
+
+    /// Base deposit for asset metadata.
+    type MetadataDepositBase = ConstU128<10_000_000>;
+
+    /// Per-byte deposit for metadata.
+    type MetadataDepositPerByte = ConstU128<1_000_000>;
+
+    /// Approval deposit (optional, set to 0 if approvals are not used).
+    type ApprovalDeposit = ConstU128<0>;
+
+    /// Limit for string lengths (like asset name/symbol).
+    type StringLimit = ConstU32<50>;
+
+    /// Max number of items to remove during forced asset destruction.
+    type RemoveItemsLimit = ConstU32<1000>;
+
+    /// Extra type (can be `()` if unused).
+    type Extra = ();
+
+    /// Optional callback hooks (can be `()` if unused).
+    type CallbackHandle = ();
+
+    /// Optional freezing logic (can be `()` if unused).
+    type Freezer = ();
+
+    /// Weight info for benchmarking (you should generate this using benchmarking).
+    type WeightInfo = pallet_assets::weights::SubstrateWeight<Runtime>;
+
+	type AssetIdParameter = codec::Compact<u32>; // or just `u32` if no Compact encoding is needed
+
+	type Holder = ();
+}
+
 impl pallet_sudo::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 	type RuntimeCall = RuntimeCall;
 	type WeightInfo = pallet_sudo::weights::SubstrateWeight<Runtime>;
+}
+
+parameter_types! {
+    pub const CollectionDeposit: u128 = 1_000 * MILLI_UNIT;
+    pub const ItemDeposit: u128 = 500 * MILLI_UNIT;
+    pub const MetadataDepositBase: u128 = 100 * MILLI_UNIT;
+    pub const AttributeDepositBase: u128 = 10 * MILLI_UNIT;
+    pub const DepositPerByte: u128 = 1 * MILLI_UNIT;
+
+    pub const StringLimit: u32 = 128;
+    pub const KeyLimit: u32 = 32;
+    pub const ValueLimit: u32 = 64;
+}
+
+impl pallet_uniques::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
+
+    type CollectionId = u32;
+    type ItemId = u32;
+
+    type Currency = Balances;
+    type ForceOrigin = EnsureRoot<AccountId>;
+    
+    type CreateOrigin = frame_system::EnsureSigned<AccountId>; // or EnsureRootWithArg if using custom collection access
+    
+    type Locker = ();
+    type CollectionDeposit = CollectionDeposit;
+    type ItemDeposit = ItemDeposit;
+    type MetadataDepositBase = MetadataDepositBase;
+    type AttributeDepositBase = AttributeDepositBase;
+    type DepositPerByte = DepositPerByte;
+
+    type StringLimit = StringLimit;
+    type KeyLimit = KeyLimit;
+    type ValueLimit = ValueLimit;
+
+    type WeightInfo = ();
 }
 
 /// Configure the pallet-template in pallets/template.
