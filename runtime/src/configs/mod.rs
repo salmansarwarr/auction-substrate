@@ -160,5 +160,16 @@ impl pallet_sudo::Config for Runtime {
 /// Configure the pallet-template in pallets/template.
 impl pallet_template::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
-	type WeightInfo = pallet_template::weights::SubstrateWeight<Runtime>;
+	
+	// Use the Balances pallet as the Currency implementation
+	type Currency = Balances;
+	
+	// Define what type to use for asset IDs (commonly u32 or H256)
+	type AssetId = u32;
+	
+	// Set maximum number of bids per auction
+	type MaxBidsPerAuction = ConstU32<100>;
+	
+	// Set number of blocks after which auction auto-resolves
+	type AuctionTimeoutBlocks = ConstU32<100>; // 100 blocks as per your requirement
 }

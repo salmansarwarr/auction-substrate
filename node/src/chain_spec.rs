@@ -4,6 +4,7 @@ use solochain_template_runtime::WASM_BINARY;
 /// Specialized `ChainSpec`. This is a specialization of the general Substrate ChainSpec type.
 pub type ChainSpec = sc_service::GenericChainSpec;
 
+
 pub fn development_chain_spec() -> Result<ChainSpec, String> {
 	Ok(ChainSpec::builder(
 		WASM_BINARY.ok_or_else(|| "Development wasm not available".to_string())?,

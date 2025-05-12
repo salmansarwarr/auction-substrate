@@ -1,202 +1,407 @@
-//! # Template Pallet
-//!
-//! A pallet with minimal functionality to help developers understand the essential components of
-//! writing a FRAME pallet. It is typically used in beginner tutorials or in Substrate template
-//! nodes as a starting point for creating a new pallet and **not meant to be used in production**.
-//!
-//! ## Overview
-//!
-//! This template pallet contains basic examples of:
-//! - declaring a storage item that stores a single `u32` value
-//! - declaring and using events
-//! - declaring and using errors
-//! - a dispatchable function that allows a user to set a new value to storage and emits an event
-//!   upon success
-//! - another dispatchable function that causes a custom error to be thrown
-//!
-//! Each pallet section is annotated with an attribute using the `#[pallet::...]` procedural macro.
-//! This macro generates the necessary code for a pallet to be aggregated into a FRAME runtime.
-//!
-//! Learn more about FRAME macros [here](https://docs.substrate.io/reference/frame-macros/).
-//!
-//! ### Pallet Sections
-//!
-//! The pallet sections in this template are:
-//!
-//! - A **configuration trait** that defines the types and parameters which the pallet depends on
-//!   (denoted by the `#[pallet::config]` attribute). See: [`Config`].
-//! - A **means to store pallet-specific data** (denoted by the `#[pallet::storage]` attribute).
-//!   See: [`storage_types`].
-//! - A **declaration of the events** this pallet emits (denoted by the `#[pallet::event]`
-//!   attribute). See: [`Event`].
-//! - A **declaration of the errors** that this pallet can throw (denoted by the `#[pallet::error]`
-//!   attribute). See: [`Error`].
-//! - A **set of dispatchable functions** that define the pallet's functionality (denoted by the
-//!   `#[pallet::call]` attribute). See: [`dispatchables`].
-//!
-//! Run `cargo doc --package pallet-template --open` to view this pallet's documentation.
-
-// We make sure this pallet uses `no_std` for compiling to Wasm.
 #![cfg_attr(not(feature = "std"), no_std)]
 
-// Re-export pallet items so that they can be accessed from the crate namespace.
 pub use pallet::*;
 
-// FRAME pallets require their own "mock runtimes" to be able to run unit tests. This module
-// contains a mock runtime specific for testing this pallet's functionality.
-#[cfg(test)]
-mod mock;
-
-// This module contains the unit tests for this pallet.
-// Learn about pallet unit testing here: https://docs.substrate.io/test/unit-testing/
-#[cfg(test)]
-mod tests;
-
-// Every callable function or "dispatchable" a pallet exposes must have weight values that correctly
-// estimate a dispatchable's execution time. The benchmarking module is used to calculate weights
-// for each dispatchable and generates this pallet's weight.rs file. Learn more about benchmarking here: https://docs.substrate.io/test/benchmark/
-#[cfg(feature = "runtime-benchmarks")]
-mod benchmarking;
-pub mod weights;
-pub use weights::*;
-
-// All pallet logic is defined in its own module and must be annotated by the `pallet` attribute.
 #[frame_support::pallet]
 pub mod pallet {
-	// Import various useful types required by all FRAME pallets.
-	use super::*;
-	use frame_support::pallet_prelude::*;
-	use frame_system::pallet_prelude::*;
+    use frame_support::{
+        pallet_prelude::*,
+        traits::{Currency, ReservableCurrency, ExistenceRequirement},
+    };
+    use frame_system::pallet_prelude::*;
+    use sp_runtime::traits::Zero;
+    use sp_std::prelude::*;
 
-	// The `Pallet` struct serves as a placeholder to implement traits, methods and dispatchables
-	// (`Call`s) in this pallet.
-	#[pallet::pallet]
-	pub struct Pallet<T>(_);
+    type AccountIdOf<T> = <T as frame_system::Config>::AccountId;
+    type BalanceOf<T> = <<T as Config>::Currency as Currency<AccountIdOf<T>>>::Balance;
 
-	/// The pallet's configuration trait.
-	///
-	/// All our types and constants a pallet depends on must be declared here.
-	/// These types are defined generically and made concrete when the pallet is declared in the
-	/// `runtime/src/lib.rs` file of your chain.
-	#[pallet::config]
-	pub trait Config: frame_system::Config {
-		/// The overarching runtime event type.
-		type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
-		/// A type representing the weights required by the dispatchables of this pallet.
-		type WeightInfo: WeightInfo;
-	}
+    #[pallet::config]
+    pub trait Config: frame_system::Config {
+        type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
+        
+        /// The currency mechanism for handling bids
+        type Currency: ReservableCurrency<Self::AccountId>;
+        
+        /// Asset identifier type
+        type AssetId: Member + Parameter + MaxEncodedLen + Copy + PartialEq;
+        
+        /// The maximum number of bids per auction
+        #[pallet::constant]
+        type MaxBidsPerAuction: Get<u32>;
+        
+        /// Number of blocks after which the auction auto-resolves
+        #[pallet::constant]
+        type AuctionTimeoutBlocks: Get<BlockNumberFor<Self>>;
+    }
 
-	/// A storage item for this pallet.
-	///
-	/// In this template, we are declaring a storage item called `Something` that stores a single
-	/// `u32` value. Learn more about runtime storage here: <https://docs.substrate.io/build/runtime-storage/>
-	#[pallet::storage]
-	pub type Something<T> = StorageValue<_, u32>;
+    /// Asset information
+    #[pallet::storage]
+    #[pallet::getter(fn assets)]
+    pub type Assets<T: Config> = StorageMap<
+        _,
+        Blake2_128Concat,
+        T::AssetId,
+        AssetInfo<T::AccountId>,
+        OptionQuery,
+    >;
 
-	/// Events that functions in this pallet can emit.
-	///
-	/// Events are a simple means of indicating to the outside world (such as dApps, chain explorers
-	/// or other users) that some notable update in the runtime has occurred. In a FRAME pallet, the
-	/// documentation for each event field and its parameters is added to a node's metadata so it
-	/// can be used by external interfaces or tools.
-	///
-	///	The `generate_deposit` macro generates a function on `Pallet` called `deposit_event` which
-	/// will convert the event type of your pallet into `RuntimeEvent` (declared in the pallet's
-	/// [`Config`] trait) and deposit it using [`frame_system::Pallet::deposit_event`].
-	#[pallet::event]
-	#[pallet::generate_deposit(pub(super) fn deposit_event)]
-	pub enum Event<T: Config> {
-		/// A user has successfully set a new value.
-		SomethingStored {
-			/// The new value set.
-			something: u32,
-			/// The account who set the new value.
-			who: T::AccountId,
-		},
-	}
+    /// Auctions information
+    #[pallet::storage]
+    #[pallet::getter(fn auctions)]
+    pub type Auctions<T: Config> = StorageMap<
+        _,
+        Blake2_128Concat,
+        T::AssetId,
+        AuctionInfo<T::AccountId, BalanceOf<T>, BlockNumberFor<T>>,
+        OptionQuery,
+    >;
 
-	/// Errors that can be returned by this pallet.
-	///
-	/// Errors tell users that something went wrong so it's important that their naming is
-	/// informative. Similar to events, error documentation is added to a node's metadata so it's
-	/// equally important that they have helpful documentation associated with them.
-	///
-	/// This type of runtime error can be up to 4 bytes in size should you want to return additional
-	/// information.
-	#[pallet::error]
-	pub enum Error<T> {
-		/// The value retrieved was `None` as no value was previously set.
-		NoneValue,
-		/// There was an attempt to increment the value in storage over `u32::MAX`.
-		StorageOverflow,
-	}
+    /// Mapping from asset to bidders and their bids, ordered by bid amount
+    #[pallet::storage]
+    #[pallet::getter(fn bids)]
+    pub type Bids<T: Config> = StorageMap<
+        _,
+        Blake2_128Concat,
+        T::AssetId,
+        BoundedVec<(T::AccountId, BalanceOf<T>), T::MaxBidsPerAuction>,
+        ValueQuery,
+    >;
 
-	/// The pallet's dispatchable functions ([`Call`]s).
-	///
-	/// Dispatchable functions allows users to interact with the pallet and invoke state changes.
-	/// These functions materialize as "extrinsics", which are often compared to transactions.
-	/// They must always return a `DispatchResult` and be annotated with a weight and call index.
-	///
-	/// The [`call_index`] macro is used to explicitly
-	/// define an index for calls in the [`Call`] enum. This is useful for pallets that may
-	/// introduce new dispatchables over time. If the order of a dispatchable changes, its index
-	/// will also change which will break backwards compatibility.
-	///
-	/// The [`weight`] macro is used to assign a weight to each call.
-	#[pallet::call]
-	impl<T: Config> Pallet<T> {
-		/// An example dispatchable that takes a single u32 value as a parameter, writes the value
-		/// to storage and emits an event.
-		///
-		/// It checks that the _origin_ for this call is _Signed_ and returns a dispatch
-		/// error if it isn't. Learn more about origins here: <https://docs.substrate.io/build/origins/>
-		#[pallet::call_index(0)]
-		#[pallet::weight(T::WeightInfo::do_something())]
-		pub fn do_something(origin: OriginFor<T>, something: u32) -> DispatchResult {
-			// Check that the extrinsic was signed and get the signer.
-			let who = ensure_signed(origin)?;
+    /// Structure for asset information
+    #[derive(Clone, Encode, Decode, Eq, PartialEq, RuntimeDebug, MaxEncodedLen, TypeInfo)]
+    pub struct AssetInfo<AccountId> {
+        /// The owner of the asset
+        pub owner: AccountId,
+        /// Whether the asset has been sold
+        pub is_bought: bool,
+        /// The buyer of the asset, if any
+        pub buyer: Option<AccountId>,
+    }
 
-			// Update storage.
-			Something::<T>::put(something);
+    /// Structure for auction information
+    #[derive(Clone, Encode, Decode, Eq, PartialEq, RuntimeDebug, MaxEncodedLen, TypeInfo)]
+    pub struct AuctionInfo<AccountId, Balance, BlockNumber> {
+        /// The owner of the auction
+        pub owner: AccountId,
+        /// The block number when the auction started
+        pub start_block: BlockNumber,
+        /// The highest bid amount
+        pub highest_bid: Balance,
+        /// The highest bidder
+        pub highest_bidder: Option<AccountId>,
+        /// Whether the auction has ended
+        pub ended: bool,
+    }
 
-			// Emit an event.
-			Self::deposit_event(Event::SomethingStored { something, who });
+    #[pallet::event]
+    #[pallet::generate_deposit(pub(super) fn deposit_event)]
+    pub enum Event<T: Config> {
+        /// An asset was listed for auction. [asset_id, owner]
+        AssetListed(T::AssetId, T::AccountId),
+        /// A bid was placed. [asset_id, bidder, bid_amount]
+        BidPlaced(T::AssetId, T::AccountId, BalanceOf<T>),
+        /// An auction was resolved with a winner. [asset_id, winner, bid_amount]
+        AuctionResolved(T::AssetId, T::AccountId, BalanceOf<T>),
+        /// An auction failed to find a valid buyer. [asset_id]
+        AuctionFailed(T::AssetId),
+    }
 
-			// Return a successful `DispatchResult`
-			Ok(())
-		}
+    #[pallet::error]
+    pub enum Error<T> {
+        /// Asset already exists
+        AssetAlreadyExists,
+        /// Asset does not exist
+        AssetNotFound,
+        /// Not the asset owner
+        NotAssetOwner,
+        /// Auction already exists
+        AuctionAlreadyExists,
+        /// Auction does not exist
+        AuctionNotFound,
+        /// Auction has ended
+        AuctionEnded,
+        /// Bid is too low
+        BidTooLow,
+        /// Cannot bid on own auction
+        CannotBidOnOwnAuction,
+        /// Too many bids
+        TooManyBids,
+        /// Cannot find a valid buyer with sufficient funds
+        NoValidBuyer,
+        /// Asset is already sold
+        AssetAlreadySold,
+    }
 
-		/// An example dispatchable that may throw a custom error.
-		///
-		/// It checks that the caller is a signed origin and reads the current value from the
-		/// `Something` storage item. If a current value exists, it is incremented by 1 and then
-		/// written back to storage.
-		///
-		/// ## Errors
-		///
-		/// The function will return an error under the following conditions:
-		///
-		/// - If no value has been set ([`Error::NoneValue`])
-		/// - If incrementing the value in storage causes an arithmetic overflow
-		///   ([`Error::StorageOverflow`])
-		#[pallet::call_index(1)]
-		#[pallet::weight(T::WeightInfo::cause_error())]
-		pub fn cause_error(origin: OriginFor<T>) -> DispatchResult {
-			let _who = ensure_signed(origin)?;
+    #[pallet::pallet]
+    #[pallet::without_storage_info]
+    pub struct Pallet<T>(_);
 
-			// Read a value from storage.
-			match Something::<T>::get() {
-				// Return an error if the value has not been set.
-				None => Err(Error::<T>::NoneValue.into()),
-				Some(old) => {
-					// Increment the value read from storage. This will cause an error in the event
-					// of overflow.
-					let new = old.checked_add(1).ok_or(Error::<T>::StorageOverflow)?;
-					// Update the value in storage with the incremented result.
-					Something::<T>::put(new);
-					Ok(())
-				},
-			}
-		}
-	}
+    #[pallet::hooks]
+    impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
+        fn on_initialize(now: BlockNumberFor<T>) -> Weight {
+            let mut weight = Weight::zero();
+
+            // Check for auctions that need to be auto-resolved
+            let mut auctions_to_resolve = Vec::new();
+
+            for (asset_id, auction_info) in Auctions::<T>::iter() {
+                if !auction_info.ended && 
+                   now >= auction_info.start_block + T::AuctionTimeoutBlocks::get() {
+                    auctions_to_resolve.push(asset_id);
+                }
+                weight = weight.saturating_add(T::DbWeight::get().reads(1));
+            }
+
+            // Resolve expired auctions
+            for asset_id in auctions_to_resolve {
+                let _ = Self::auto_resolve_auction(&asset_id);
+                weight = weight.saturating_add(T::DbWeight::get().reads_writes(3, 2));
+            }
+
+            weight
+        }
+    }
+
+    #[pallet::call]
+    impl<T: Config> Pallet<T> {
+        /// List an asset for auction
+        #[pallet::call_index(0)]
+        #[pallet::weight(T::DbWeight::get().reads_writes(2, 2))]
+        pub fn list_asset(
+            origin: OriginFor<T>,
+            asset_id: T::AssetId,
+        ) -> DispatchResult {
+            let owner = ensure_signed(origin)?;
+
+            // Ensure asset doesn't exist already
+            ensure!(!Assets::<T>::contains_key(&asset_id), Error::<T>::AssetAlreadyExists);
+            // Ensure auction doesn't exist
+            ensure!(!Auctions::<T>::contains_key(&asset_id), Error::<T>::AuctionAlreadyExists);
+
+            // Create and store asset info
+            let asset_info = AssetInfo {
+                owner: owner.clone(),
+                is_bought: false,
+                buyer: None,
+            };
+            Assets::<T>::insert(&asset_id, asset_info);
+
+            // Create and store auction info
+            let auction_info = AuctionInfo {
+                owner: owner.clone(),
+                start_block: <frame_system::Pallet<T>>::block_number(),
+                highest_bid: Zero::zero(),
+                highest_bidder: None,
+                ended: false,
+            };
+            Auctions::<T>::insert(&asset_id, auction_info);
+
+            // Emit event
+            Self::deposit_event(Event::AssetListed(asset_id, owner));
+
+            Ok(())
+        }
+
+        /// Place a bid on an asset
+        #[pallet::call_index(1)]
+        #[pallet::weight(T::DbWeight::get().reads_writes(4, 2))]
+        pub fn place_bid(
+            origin: OriginFor<T>,
+            asset_id: T::AssetId,
+            bid_amount: BalanceOf<T>,
+        ) -> DispatchResult {
+            let bidder = ensure_signed(origin)?;
+
+            // Check if asset exists
+            let asset_info = Assets::<T>::get(&asset_id).ok_or(Error::<T>::AssetNotFound)?;
+            
+            // Check if asset is not already sold
+            ensure!(!asset_info.is_bought, Error::<T>::AssetAlreadySold);
+
+            // Check if auction exists and is active
+            let auction_info = Auctions::<T>::get(&asset_id).ok_or(Error::<T>::AuctionNotFound)?;
+            ensure!(!auction_info.ended, Error::<T>::AuctionEnded);
+
+            // Ensure bidder is not the owner
+            ensure!(bidder != auction_info.owner, Error::<T>::CannotBidOnOwnAuction);
+
+            // Ensure bid is higher than current highest bid
+            ensure!(bid_amount > auction_info.highest_bid, Error::<T>::BidTooLow);
+
+            // Check if bidder has enough funds and reserve them
+            T::Currency::reserve(&bidder, bid_amount)?;
+
+            // If there's a previous highest bidder, unreserve their funds
+            if let Some(highest_bidder) = auction_info.highest_bidder {
+                if highest_bidder != bidder {
+                    let _ = T::Currency::unreserve(&highest_bidder, auction_info.highest_bid);
+                } else {
+                    // If same bidder is increasing their bid, unreserve previous amount
+                    let _ = T::Currency::unreserve(&bidder, auction_info.highest_bid);
+                }
+            }
+
+            // Update auction with new highest bid
+            let new_auction_info = AuctionInfo {
+                highest_bid: bid_amount,
+                highest_bidder: Some(bidder.clone()),
+                ..auction_info
+            };
+            Auctions::<T>::insert(&asset_id, new_auction_info);
+
+            // Update bids collection
+            let mut bids = Bids::<T>::get(&asset_id);
+            
+            // Remove previous bid by this bidder if exists
+            bids.retain(|(b, _)| b != &bidder);
+            
+            // Add new bid, ensuring it's sorted (highest first)
+            let new_bid = (bidder.clone(), bid_amount);
+            match bids.binary_search_by(|(_, b)| b.cmp(&bid_amount).reverse()) {
+                Ok(pos) | Err(pos) => {
+                    if bids.len() == T::MaxBidsPerAuction::get() as usize && pos >= bids.len() {
+                        // New bid is too low to be included in max bids
+                        return Err(Error::<T>::BidTooLow.into());
+                    }
+                    
+                    if bids.len() == T::MaxBidsPerAuction::get() as usize {
+                        // Remove lowest bid if at capacity
+                        bids.pop();
+                    }
+                    
+                    if let Err(_e) = bids.try_insert(pos, new_bid) {
+                        return Err(Error::<T>::TooManyBids.into());
+                    }
+                }
+            }
+            Bids::<T>::insert(&asset_id, bids);
+
+            // Emit event
+            Self::deposit_event(Event::BidPlaced(asset_id, bidder, bid_amount));
+
+            Ok(())
+        }
+
+        /// Owner chooses a buyer for the auction
+        #[pallet::call_index(2)]
+        #[pallet::weight(T::DbWeight::get().reads_writes(4, 3))]
+        pub fn choose_buyer(
+            origin: OriginFor<T>,
+            asset_id: T::AssetId,
+            buyer: T::AccountId,
+        ) -> DispatchResult {
+            let who = ensure_signed(origin)?;
+
+            // Check if asset exists
+            let asset_info = Assets::<T>::get(&asset_id).ok_or(Error::<T>::AssetNotFound)?;
+            
+            // Check if asset is not already sold
+            ensure!(!asset_info.is_bought, Error::<T>::AssetAlreadySold);
+            
+            // Check if auction exists
+            let auction_info = Auctions::<T>::get(&asset_id).ok_or(Error::<T>::AuctionNotFound)?;
+            
+            // Check if auction is still active
+            ensure!(!auction_info.ended, Error::<T>::AuctionEnded);
+            
+            // Ensure caller is the asset owner
+            ensure!(who == asset_info.owner, Error::<T>::NotAssetOwner);
+
+            // Find the chosen buyer's bid
+            let bids = Bids::<T>::get(&asset_id);
+            let buyer_bid = bids.iter()
+                .find(|(bidder, _)| bidder == &buyer)
+                .ok_or(Error::<T>::NoValidBuyer)?;
+
+            // Try to transfer funds from buyer to owner
+            Self::finalize_auction(&asset_id, buyer.clone(), buyer_bid.1)?;
+
+            Ok(())
+        }
+    }
+
+    impl<T: Config> Pallet<T> {
+        /// Auto-resolve auction after timeout
+        fn auto_resolve_auction(asset_id: &T::AssetId) -> DispatchResult {
+            // Get auction info
+            let mut auction_info = Auctions::<T>::get(asset_id).ok_or(Error::<T>::AuctionNotFound)?;
+            
+            // Check if auction is still active
+            if auction_info.ended {
+                return Err(Error::<T>::AuctionEnded.into());
+            }
+
+            // Mark auction as ended
+            auction_info.ended = true;
+            Auctions::<T>::insert(asset_id, &auction_info);
+
+            // Try to finalize auction with the highest bidder
+            if let Some(highest_bidder) = &auction_info.highest_bidder {
+                // Try to transfer funds
+                if Self::finalize_auction(asset_id, highest_bidder.clone(), auction_info.highest_bid).is_err() {
+                    // If transfer fails, try next highest bidders
+                    let bids = Bids::<T>::get(asset_id);
+                    for (bidder, bid_amount) in bids.iter() {
+                        if bidder != highest_bidder && 
+                           Self::finalize_auction(asset_id, bidder.clone(), *bid_amount).is_ok() {
+                            return Ok(());
+                        }
+                    }
+                    // If all transfers fail, emit auction failed event
+                    Self::deposit_event(Event::AuctionFailed(*asset_id));
+                }
+            } else {
+                // No bids, auction failed
+                Self::deposit_event(Event::AuctionFailed(*asset_id));
+            }
+
+            Ok(())
+        }
+
+        /// Finalize auction by transferring funds and updating asset status
+        fn finalize_auction(
+            asset_id: &T::AssetId,
+            buyer: T::AccountId,
+            bid_amount: BalanceOf<T>,
+        ) -> DispatchResult {
+            // Get asset info
+            let mut asset_info = Assets::<T>::get(asset_id).ok_or(Error::<T>::AssetNotFound)?;
+            
+            // Check if asset is not already sold
+            ensure!(!asset_info.is_bought, Error::<T>::AssetAlreadySold);
+
+            // Unreserve and transfer funds from buyer to owner
+            let _ = T::Currency::unreserve(&buyer, bid_amount);
+            T::Currency::transfer(
+                &buyer,
+                &asset_info.owner,
+                bid_amount,
+                ExistenceRequirement::KeepAlive,
+            )?;
+
+            // Update asset info
+            asset_info.is_bought = true;
+            asset_info.buyer = Some(buyer.clone());
+            Assets::<T>::insert(asset_id, &asset_info);
+
+            // Mark auction as ended
+            if let Some(mut auction_info) = Auctions::<T>::get(asset_id) {
+                auction_info.ended = true;
+                Auctions::<T>::insert(asset_id, &auction_info);
+            }
+
+            // Unreserve funds for all other bidders
+            let bids = Bids::<T>::get(asset_id);
+            for (bidder, bid_amount) in bids.iter() {
+                if bidder != &buyer {
+                    let _ = T::Currency::unreserve(bidder, *bid_amount);
+                }
+            }
+
+            // Emit event
+            Self::deposit_event(Event::AuctionResolved(*asset_id, buyer, bid_amount));
+
+            Ok(())
+        }
+    }
 }
