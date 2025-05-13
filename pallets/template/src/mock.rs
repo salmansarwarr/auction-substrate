@@ -2,9 +2,9 @@ use crate as pallet_template;
 use frame_support::derive_impl;
 use frame_support::{
     parameter_types,
-    traits::{ConstU128, ConstU32, ConstU64},
+    traits::{ConstU128, ConstU32, ConstU64, ConstU8},
 };
-use frame_system as system;
+use frame_system::{self as system, EnsureRoot};
 use sp_core::H256;
 use sp_runtime::{
     traits::{BlakeTwo256, IdentityLookup},
@@ -12,6 +12,8 @@ use sp_runtime::{
 };
 
 type Block = frame_system::mocking::MockBlock<Test>;
+
+pub const MILLI_UNIT: u128 = 1_000_000_000;
 
 #[frame_support::runtime]
 mod runtime {
@@ -37,6 +39,9 @@ mod runtime {
 
     #[runtime::pallet_index(2)]
     pub type Template = pallet_template::Pallet<Test>;
+
+    #[runtime::pallet_index(3)]
+    pub type Uniques = pallet_uniques::Pallet<Test>;
 }
 
 #[derive_impl(frame_system::config_preludes::TestDefaultConfig)]
@@ -65,10 +70,6 @@ impl frame_system::Config for Test {
     type MaxConsumers = ConstU32<16>;
 }
 
-parameter_types! {
-    pub const ExistentialDeposit: u64 = 1;
-}
-
 impl pallet_balances::Config for Test {
     type MaxLocks = ConstU32<50>;
     type MaxReserves = ();
@@ -78,7 +79,7 @@ impl pallet_balances::Config for Test {
     /// The ubiquitous event type.
     type RuntimeEvent = RuntimeEvent;
     type DustRemoval = ();
-    type ExistentialDeposit = ConstU128<1_000_000_000>;
+    type ExistentialDeposit = ConstU128<1>;
     type AccountStore = System;
     type WeightInfo = ();
     type FreezeIdentifier = RuntimeFreezeReason;
@@ -91,9 +92,31 @@ impl pallet_balances::Config for Test {
 impl pallet_template::Config for Test {
     type RuntimeEvent = RuntimeEvent;
     type Currency = Balances;
-    type AssetId = u32;
     type MaxBidsPerAuction = ConstU32<10>;
     type AuctionTimeoutBlocks = ConstU64<100>;
+    type RoyaltyPercentage = ConstU8<10>;
+}
+
+impl pallet_uniques::Config for Test {
+    type RuntimeEvent = RuntimeEvent;
+    type CollectionId = u32;
+    type ItemId = u32;
+    type Currency = Balances;
+    type ForceOrigin = frame_system::EnsureSigned<u64>;
+    type CreateOrigin = frame_system::EnsureSigned<u64>;
+    type Locker = ();
+    
+    // Lower deposit values
+    type CollectionDeposit = ConstU128<1>;  // Minimum value
+    type ItemDeposit = ConstU128<1>;        // Minimum value
+    type MetadataDepositBase = ConstU128<1>;
+    type AttributeDepositBase = ConstU128<1>;
+    type DepositPerByte = ConstU128<1>;  
+
+    type StringLimit = ConstU32<128>;
+    type KeyLimit = ConstU32<32>;
+    type ValueLimit = ConstU32<64>;
+    type WeightInfo = ();
 }
 
 pub fn new_test_ext() -> sp_io::TestExternalities {
@@ -102,15 +125,26 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
         .unwrap();
     pallet_balances::GenesisConfig::<Test> {
         balances: vec![
-            (1, 10 * 1_000_000_000), // Asset owner
-            (2, 20 * 1_000_000_000), // Bidder 1
-            (3, 30 * 1_000_000_000), // Bidder 2
-            (4, 40 * 1_000_000_000), // Bidder 3
-            (5, 50 * 1_000_000_000), // Bidder 4
+            (1, 1000 * 1_000_000_000), // Asset owner
+            (2, 2000 * 1_000_000_000), // Bidder 1
+            (3, 3000 * 1_000_000_000), // Bidder 2
+            (4, 4000 * 1_000_000_000), // Bidder 3
+            (5, 5000 * 1_000_000_000), // Bidder 4
         ],
         dev_accounts: None,
     }
     .assimilate_storage(&mut t)
     .unwrap();
-    t.into()
+    
+    // Initialize the accounts explicitly
+    let mut ext = sp_io::TestExternalities::new(t);
+    ext.execute_with(|| {
+        // Ensure reference counting is properly initialized for each account
+        for account_id in 1..=5 {
+            frame_system::Pallet::<Test>::inc_providers(&account_id);
+        }
+        // Set block number to 1 for event emission
+        frame_system::Pallet::<Test>::set_block_number(1);
+    });
+    ext
 }

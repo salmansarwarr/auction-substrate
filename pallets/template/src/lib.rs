@@ -12,44 +12,36 @@ pub use pallet::*;
 pub mod pallet {
     use frame_support::{
         pallet_prelude::*,
-        traits::{Currency, ReservableCurrency, ExistenceRequirement},
+        traits::{Currency, ExistenceRequirement, ReservableCurrency, WithdrawReasons},
+        transactional,
     };
     use frame_system::pallet_prelude::*;
-    use sp_runtime::traits::Zero;
+    use sp_runtime::traits::{CheckedDiv, Zero};
+    use sp_runtime::Saturating;
     use sp_std::prelude::*;
 
     type AccountIdOf<T> = <T as frame_system::Config>::AccountId;
     type BalanceOf<T> = <<T as Config>::Currency as Currency<AccountIdOf<T>>>::Balance;
 
     #[pallet::config]
-    pub trait Config: frame_system::Config {
+    pub trait Config: frame_system::Config + pallet_uniques::Config {
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
-        
+
         /// The currency mechanism for handling bids
         type Currency: ReservableCurrency<Self::AccountId>;
-        
-        /// Asset identifier type
-        type AssetId: Member + Parameter + MaxEncodedLen + Copy + PartialEq;
-        
+
         /// The maximum number of bids per auction
         #[pallet::constant]
         type MaxBidsPerAuction: Get<u32>;
-        
+
         /// Number of blocks after which the auction auto-resolves
         #[pallet::constant]
         type AuctionTimeoutBlocks: Get<BlockNumberFor<Self>>;
-    }
 
-    /// Asset information
-    #[pallet::storage]
-    #[pallet::getter(fn assets)]
-    pub type Assets<T: Config> = StorageMap<
-        _,
-        Blake2_128Concat,
-        T::AssetId,
-        AssetInfo<T::AccountId>,
-        OptionQuery,
-    >;
+        /// Royalty percentage for original creators (0-100)
+        #[pallet::constant]
+        type RoyaltyPercentage: Get<u8>;
+    }
 
     /// Auctions information
     #[pallet::storage]
@@ -57,32 +49,27 @@ pub mod pallet {
     pub type Auctions<T: Config> = StorageMap<
         _,
         Blake2_128Concat,
-        T::AssetId,
+        (T::CollectionId, T::ItemId),
         AuctionInfo<T::AccountId, BalanceOf<T>, BlockNumberFor<T>>,
         OptionQuery,
     >;
 
-    /// Mapping from asset to bidders and their bids, ordered by bid amount
+    /// Mapping from NFT to bidders and their bids, ordered by bid amount
     #[pallet::storage]
     #[pallet::getter(fn bids)]
     pub type Bids<T: Config> = StorageMap<
         _,
         Blake2_128Concat,
-        T::AssetId,
+        (T::CollectionId, T::ItemId),
         BoundedVec<(T::AccountId, BalanceOf<T>), T::MaxBidsPerAuction>,
         ValueQuery,
     >;
 
-    /// Structure for asset information
-    #[derive(Clone, Encode, Decode, Eq, PartialEq, RuntimeDebug, MaxEncodedLen, TypeInfo)]
-    pub struct AssetInfo<AccountId> {
-        /// The owner of the asset
-        pub owner: AccountId,
-        /// Whether the asset has been sold
-        pub is_bought: bool,
-        /// The buyer of the asset, if any
-        pub buyer: Option<AccountId>,
-    }
+    /// Tracks whether an NFT is currently in an auction
+    #[pallet::storage]
+    #[pallet::getter(fn is_in_auction)]
+    pub type InAuction<T: Config> =
+        StorageMap<_, Blake2_128Concat, (T::CollectionId, T::ItemId), bool, ValueQuery>;
 
     /// Structure for auction information
     #[derive(Clone, Encode, Decode, Eq, PartialEq, RuntimeDebug, MaxEncodedLen, TypeInfo)]
@@ -102,28 +89,24 @@ pub mod pallet {
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
     pub enum Event<T: Config> {
-        /// An asset was listed for auction. [asset_id, owner]
-        AssetListed(T::AssetId, T::AccountId),
-        /// A bid was placed. [asset_id, bidder, bid_amount]
-        BidPlaced(T::AssetId, T::AccountId, BalanceOf<T>),
-        /// An auction was resolved with a winner. [asset_id, winner, bid_amount]
-        AuctionResolved(T::AssetId, T::AccountId, BalanceOf<T>),
-        /// An auction failed to find a valid buyer. [asset_id]
-        AuctionFailed(T::AssetId),
+        /// An NFT was listed for auction. [collection_id, item_id, owner]
+        NftListed(T::CollectionId, T::ItemId, T::AccountId),
+        /// A bid was placed. [collection_id, item_id, bidder, bid_amount]
+        BidPlaced(T::CollectionId, T::ItemId, T::AccountId, BalanceOf<T>),
+        /// An auction was resolved with a winner. [collection_id, item_id, winner, bid_amount]
+        AuctionResolved(T::CollectionId, T::ItemId, T::AccountId, BalanceOf<T>),
+        /// An auction failed to find a valid buyer. [collection_id, item_id]
+        AuctionFailed(T::CollectionId, T::ItemId),
     }
 
     #[pallet::error]
     pub enum Error<T> {
-        /// Asset already exists
-        AssetAlreadyExists,
-        /// Asset does not exist
-        AssetNotFound,
-        /// Not the asset owner
-        NotAssetOwner,
-        /// Auction already exists
-        AuctionAlreadyExists,
+        /// NFT is already in an auction
+        NftAlreadyInAuction,
         /// Auction does not exist
         AuctionNotFound,
+        /// Not the NFT owner
+        NotNftOwner,
         /// Auction has ended
         AuctionEnded,
         /// Bid is too low
@@ -134,8 +117,8 @@ pub mod pallet {
         TooManyBids,
         /// Cannot find a valid buyer with sufficient funds
         NoValidBuyer,
-        /// Asset is already sold
-        AssetAlreadySold,
+        /// Collection or item does not exist
+        NftNotFound,
     }
 
     #[pallet::pallet]
@@ -150,17 +133,18 @@ pub mod pallet {
             // Check for auctions that need to be auto-resolved
             let mut auctions_to_resolve = Vec::new();
 
-            for (asset_id, auction_info) in Auctions::<T>::iter() {
-                if !auction_info.ended && 
-                   now >= auction_info.start_block + T::AuctionTimeoutBlocks::get() {
-                    auctions_to_resolve.push(asset_id);
+            for ((collection_id, item_id), auction_info) in Auctions::<T>::iter() {
+                if !auction_info.ended
+                    && now >= auction_info.start_block + T::AuctionTimeoutBlocks::get()
+                {
+                    auctions_to_resolve.push((collection_id, item_id));
                 }
                 weight = weight.saturating_add(T::DbWeight::get().reads(1));
             }
 
             // Resolve expired auctions
-            for asset_id in auctions_to_resolve {
-                let _ = Self::auto_resolve_auction(&asset_id);
+            for (collection_id, item_id) in auctions_to_resolve {
+                let _ = Self::auto_resolve_auction(&collection_id, &item_id);
                 weight = weight.saturating_add(T::DbWeight::get().reads_writes(3, 2));
             }
 
@@ -170,29 +154,43 @@ pub mod pallet {
 
     #[pallet::call]
     impl<T: Config> Pallet<T> {
-        /// List an asset for auction
+        // List an NFT for auction
         #[pallet::call_index(0)]
-        #[pallet::weight(T::DbWeight::get().reads_writes(2, 2))]
-        pub fn list_asset(
+        #[pallet::weight(T::DbWeight::get().reads_writes(3, 2))]
+        pub fn list_nft_for_auction(
             origin: OriginFor<T>,
-            asset_id: T::AssetId,
-        ) -> DispatchResult {
+            collection_id: T::CollectionId,
+            item_id: T::ItemId,
+        ) -> DispatchResult {  
             let owner = ensure_signed(origin)?;
 
-            // Ensure asset doesn't exist already
-            ensure!(!Assets::<T>::contains_key(&asset_id), Error::<T>::AssetAlreadyExists);
-            // Ensure auction doesn't exist
-            ensure!(!Auctions::<T>::contains_key(&asset_id), Error::<T>::AuctionAlreadyExists);
+            // Ensure collection and item exist
+            ensure!(
+                pallet_uniques::Pallet::<T>::owner(collection_id.clone(), item_id.clone())
+                    .is_some(),
+                Error::<T>::NftNotFound
+            );
 
-            // Create and store asset info
-            let asset_info = AssetInfo {
-                owner: owner.clone(),
-                is_bought: false,
-                buyer: None,
-            };
-            Assets::<T>::insert(&asset_id, asset_info);
+            // Ensure caller is the NFT owner
+            let nft_owner =
+                pallet_uniques::Pallet::<T>::owner(collection_id.clone(), item_id.clone())
+                    .ok_or(Error::<T>::NftNotFound)?;
+            ensure!(owner == nft_owner, Error::<T>::NotNftOwner);
 
-            // Create and store auction info
+            // Ensure NFT is not already in an auction
+            ensure!(
+                !InAuction::<T>::get((collection_id.clone(), item_id.clone())),
+                Error::<T>::NftAlreadyInAuction
+            );
+
+            // Freeze the Nft
+            pallet_uniques::Pallet::<T>::freeze(
+                frame_system::RawOrigin::Signed(owner.clone()).into(),
+                collection_id.clone(),
+                item_id.clone(),
+            )?;
+
+            // Create auction info
             let auction_info = AuctionInfo {
                 owner: owner.clone(),
                 start_block: <frame_system::Pallet<T>>::block_number(),
@@ -200,50 +198,55 @@ pub mod pallet {
                 highest_bidder: None,
                 ended: false,
             };
-            Auctions::<T>::insert(&asset_id, auction_info);
+            Auctions::<T>::insert((collection_id.clone(), item_id.clone()), auction_info);
+
+            // Mark NFT as in auction
+            InAuction::<T>::insert((collection_id.clone(), item_id.clone()), true);
 
             // Emit event
-            Self::deposit_event(Event::AssetListed(asset_id, owner));
+            Self::deposit_event(Event::NftListed(collection_id, item_id, owner));
 
             Ok(())
         }
 
-        /// Place a bid on an asset
+        // Place a bid on an NFT
         #[pallet::call_index(1)]
         #[pallet::weight(T::DbWeight::get().reads_writes(4, 2))]
         pub fn place_bid(
             origin: OriginFor<T>,
-            asset_id: T::AssetId,
+            collection_id: T::CollectionId,
+            item_id: T::ItemId,
             bid_amount: BalanceOf<T>,
         ) -> DispatchResult {
             let bidder = ensure_signed(origin)?;
 
-            // Check if asset exists
-            let asset_info = Assets::<T>::get(&asset_id).ok_or(Error::<T>::AssetNotFound)?;
-            
-            // Check if asset is not already sold
-            ensure!(!asset_info.is_bought, Error::<T>::AssetAlreadySold);
-
-            // Check if auction exists and is active
-            let auction_info = Auctions::<T>::get(&asset_id).ok_or(Error::<T>::AuctionNotFound)?;
+            // Ensure auction exists and is active
+            let auction_info = Auctions::<T>::get((collection_id.clone(), item_id.clone()))
+                .ok_or(Error::<T>::AuctionNotFound)?;
             ensure!(!auction_info.ended, Error::<T>::AuctionEnded);
 
-            // Ensure bidder is not the owner
-            ensure!(bidder != auction_info.owner, Error::<T>::CannotBidOnOwnAuction);
+            // Ensure bidder is not the auction owner
+            ensure!(
+                bidder != auction_info.owner,
+                Error::<T>::CannotBidOnOwnAuction
+            );
 
             // Ensure bid is higher than current highest bid
             ensure!(bid_amount > auction_info.highest_bid, Error::<T>::BidTooLow);
 
             // Check if bidder has enough funds and reserve them
-            T::Currency::reserve(&bidder, bid_amount)?;
+            <T as Config>::Currency::reserve(&bidder, bid_amount)?;
 
             // If there's a previous highest bidder, unreserve their funds
             if let Some(highest_bidder) = auction_info.highest_bidder {
                 if highest_bidder != bidder {
-                    let _ = T::Currency::unreserve(&highest_bidder, auction_info.highest_bid);
+                    let _ = <T as Config>::Currency::unreserve(
+                        &highest_bidder,
+                        auction_info.highest_bid,
+                    );
                 } else {
                     // If same bidder is increasing their bid, unreserve previous amount
-                    let _ = T::Currency::unreserve(&bidder, auction_info.highest_bid);
+                    let _ = <T as Config>::Currency::unreserve(&bidder, auction_info.highest_bid);
                 }
             }
 
@@ -253,14 +256,14 @@ pub mod pallet {
                 highest_bidder: Some(bidder.clone()),
                 ..auction_info
             };
-            Auctions::<T>::insert(&asset_id, new_auction_info);
+            Auctions::<T>::insert((collection_id.clone(), item_id.clone()), new_auction_info);
 
             // Update bids collection
-            let mut bids = Bids::<T>::get(&asset_id);
-            
+            let mut bids = Bids::<T>::get((collection_id.clone(), item_id.clone()));
+
             // Remove previous bid by this bidder if exists
             bids.retain(|(b, _)| b != &bidder);
-            
+
             // Add new bid, ensuring it's sorted (highest first)
             let new_bid = (bidder.clone(), bid_amount);
             match bids.binary_search_by(|(_, b)| b.cmp(&bid_amount).reverse()) {
@@ -269,143 +272,213 @@ pub mod pallet {
                         // New bid is too low to be included in max bids
                         return Err(Error::<T>::BidTooLow.into());
                     }
-                    
+
                     if bids.len() == T::MaxBidsPerAuction::get() as usize {
                         // Remove lowest bid if at capacity
                         bids.pop();
                     }
-                    
+
                     if let Err(_e) = bids.try_insert(pos, new_bid) {
                         return Err(Error::<T>::TooManyBids.into());
                     }
                 }
             }
-            Bids::<T>::insert(&asset_id, bids);
+            Bids::<T>::insert((collection_id.clone(), item_id.clone()), bids);
 
             // Emit event
-            Self::deposit_event(Event::BidPlaced(asset_id, bidder, bid_amount));
+            Self::deposit_event(Event::BidPlaced(collection_id, item_id, bidder, bid_amount));
 
             Ok(())
         }
 
-        /// Owner chooses a buyer for the auction
+        // Resolve auction by choosing a buyer
         #[pallet::call_index(2)]
         #[pallet::weight(T::DbWeight::get().reads_writes(4, 3))]
-        pub fn choose_buyer(
+        pub fn resolve_auction(
             origin: OriginFor<T>,
-            asset_id: T::AssetId,
-            buyer: T::AccountId,
+            collection_id: T::CollectionId,
+            item_id: T::ItemId,
         ) -> DispatchResult {
             let who = ensure_signed(origin)?;
 
-            // Check if asset exists
-            let asset_info = Assets::<T>::get(&asset_id).ok_or(Error::<T>::AssetNotFound)?;
-            
-            // Check if asset is not already sold
-            ensure!(!asset_info.is_bought, Error::<T>::AssetAlreadySold);
-            
-            // Check if auction exists
-            let auction_info = Auctions::<T>::get(&asset_id).ok_or(Error::<T>::AuctionNotFound)?;
-            
+            // Get auction info
+            let auction_info = Auctions::<T>::get((collection_id.clone(), item_id.clone()))
+                .ok_or(Error::<T>::AuctionNotFound)?;
+
             // Check if auction is still active
             ensure!(!auction_info.ended, Error::<T>::AuctionEnded);
-            
-            // Ensure caller is the asset owner
-            ensure!(who == asset_info.owner, Error::<T>::NotAssetOwner);
 
-            // Find the chosen buyer's bid
-            let bids = Bids::<T>::get(&asset_id);
-            let buyer_bid = bids.iter()
-                .find(|(bidder, _)| bidder == &buyer)
+            // Ensure caller is the auction owner
+            ensure!(who == auction_info.owner, Error::<T>::NotNftOwner);
+
+            // Require at least one bid
+            let highest_bidder = auction_info
+                .highest_bidder
                 .ok_or(Error::<T>::NoValidBuyer)?;
 
-            // Try to transfer funds from buyer to owner
-            Self::finalize_auction(&asset_id, buyer.clone(), buyer_bid.1)?;
+            // Finalize the auction
+            Self::finalize_auction(
+                &collection_id,
+                &item_id,
+                &highest_bidder,
+                auction_info.highest_bid,
+            )?;
 
             Ok(())
         }
     }
 
     impl<T: Config> Pallet<T> {
-        /// Auto-resolve auction after timeout
-        fn auto_resolve_auction(asset_id: &T::AssetId) -> DispatchResult {
+        // Auto-resolve auction after timeout
+        fn auto_resolve_auction(
+            collection_id: &T::CollectionId,
+            item_id: &T::ItemId,
+        ) -> DispatchResult {
             // Get auction info
-            let mut auction_info = Auctions::<T>::get(asset_id).ok_or(Error::<T>::AuctionNotFound)?;
-            
+            let mut auction_info =
+                Auctions::<T>::get((collection_id, item_id)).ok_or(Error::<T>::AuctionNotFound)?;
+
             // Check if auction is still active
             if auction_info.ended {
                 return Err(Error::<T>::AuctionEnded.into());
             }
 
-            // Mark auction as ended
-            auction_info.ended = true;
-            Auctions::<T>::insert(asset_id, &auction_info);
-
             // Try to finalize auction with the highest bidder
             if let Some(highest_bidder) = &auction_info.highest_bidder {
-                // Try to transfer funds
-                if Self::finalize_auction(asset_id, highest_bidder.clone(), auction_info.highest_bid).is_err() {
+                // Try to transfer NFT and funds
+                if Self::finalize_auction(
+                    collection_id,
+                    item_id,
+                    highest_bidder,
+                    auction_info.highest_bid,
+                )
+                .is_err()
+                {
                     // If transfer fails, try next highest bidders
-                    let bids = Bids::<T>::get(asset_id);
+                    let bids = Bids::<T>::get((collection_id, item_id));
                     for (bidder, bid_amount) in bids.iter() {
-                        if bidder != highest_bidder && 
-                           Self::finalize_auction(asset_id, bidder.clone(), *bid_amount).is_ok() {
+                        if bidder != highest_bidder
+                            && Self::finalize_auction(collection_id, item_id, bidder, *bid_amount)
+                                .is_ok()
+                        {
                             return Ok(());
                         }
                     }
                     // If all transfers fail, emit auction failed event
-                    Self::deposit_event(Event::AuctionFailed(*asset_id));
+                    
+                    auction_info.ended = true;
+                    Auctions::<T>::insert((collection_id, item_id), &auction_info);
+                    Self::deposit_event(Event::AuctionFailed(collection_id.clone(), *item_id));
                 }
             } else {
                 // No bids, auction failed
-                Self::deposit_event(Event::AuctionFailed(*asset_id));
+                auction_info.ended = true;
+                Auctions::<T>::insert((collection_id, item_id), &auction_info);
+                Self::deposit_event(Event::AuctionFailed(collection_id.clone(), *item_id));
             }
 
             Ok(())
         }
 
-        /// Finalize auction by transferring funds and updating asset status
+        // Finalize auction by transferring NFT and handling funds
+        #[transactional]
         fn finalize_auction(
-            asset_id: &T::AssetId,
-            buyer: T::AccountId,
+            collection_id: &T::CollectionId,
+            item_id: &T::ItemId,
+            buyer: &T::AccountId,
             bid_amount: BalanceOf<T>,
         ) -> DispatchResult {
-            // Get asset info
-            let mut asset_info = Assets::<T>::get(asset_id).ok_or(Error::<T>::AssetNotFound)?;
-            
-            // Check if asset is not already sold
-            ensure!(!asset_info.is_bought, Error::<T>::AssetAlreadySold);
+            // Retrieve auction information
+            let auction_info =
+                Auctions::<T>::get((collection_id, item_id)).ok_or(Error::<T>::AuctionNotFound)?;
 
-            // Unreserve and transfer funds from buyer to owner
-            let _ = T::Currency::unreserve(&buyer, bid_amount);
-            T::Currency::transfer(
-                &buyer,
-                &asset_info.owner,
+            // Ensure auction hasn't already ended
+            ensure!(!auction_info.ended, Error::<T>::AuctionEnded);
+
+            // Verify current NFT ownership
+            let current_owner =
+                pallet_uniques::Pallet::<T>::owner(collection_id.clone(), item_id.clone())
+                    .ok_or(Error::<T>::NftNotFound)?;
+            ensure!(current_owner == auction_info.owner, Error::<T>::NotNftOwner);
+
+            // Validate buyer's funds
+            ensure!(
+                <T as Config>::Currency::can_slash(buyer, bid_amount),
+                Error::<T>::NoValidBuyer
+            );
+
+            // Calculate royalty (if applicable)
+            let royalty_percentage = T::RoyaltyPercentage::get();
+            let royalty_amount = bid_amount
+                .checked_mul(&BalanceOf::<T>::from(royalty_percentage as u32))
+                .and_then(|royalty| royalty.checked_div(&BalanceOf::<T>::from(100u32)))
+                .unwrap_or_else(|| Zero::zero());
+
+            // Calculate seller's amount (total bid minus royalty)
+            let seller_amount = bid_amount.saturating_sub(royalty_amount);
+
+            // Perform atomic transactions
+           let _ = <T as Config>::Currency::unreserve(buyer, bid_amount.into());
+
+            // 1. Transfer funds from buyer
+            let _ = <T as Config>::Currency::withdraw(
+                buyer,
                 bid_amount,
+                WithdrawReasons::TRANSFER,
                 ExistenceRequirement::KeepAlive,
             )?;
 
-            // Update asset info
-            asset_info.is_bought = true;
-            asset_info.buyer = Some(buyer.clone());
-            Assets::<T>::insert(asset_id, &asset_info);
-
-            // Mark auction as ended
-            if let Some(mut auction_info) = Auctions::<T>::get(asset_id) {
-                auction_info.ended = true;
-                Auctions::<T>::insert(asset_id, &auction_info);
-            }
-
-            // Unreserve funds for all other bidders
-            let bids = Bids::<T>::get(asset_id);
-            for (bidder, bid_amount) in bids.iter() {
-                if bidder != &buyer {
-                    let _ = T::Currency::unreserve(bidder, *bid_amount);
+            // 2. Pay royalty to collection creator (if applicable)
+            if royalty_amount > Zero::zero() {
+                if let Some(collection_admin) =
+                    pallet_uniques::Pallet::<T>::collection_owner(collection_id.clone())
+                {
+                    let _ = <T as Config>::Currency::deposit_creating(
+                        &collection_admin,
+                        royalty_amount,
+                    );
                 }
             }
 
-            // Emit event
-            Self::deposit_event(Event::AuctionResolved(*asset_id, buyer, bid_amount));
+            // 3. Pay remaining funds to auction owner
+            let _ = <T as Config>::Currency::deposit_creating(&auction_info.owner, seller_amount);
+
+            // 4. Unfreeze the NFT before transferring
+            pallet_uniques::Pallet::<T>::thaw(
+                frame_system::RawOrigin::Signed(auction_info.owner.clone()).into(),
+                collection_id.clone(),
+                *item_id,
+            )?;
+
+            // 5. Transfer NFT to the buyer
+            pallet_uniques::Pallet::<T>::do_transfer(
+                collection_id.clone(),
+                *item_id,
+                buyer.clone(),
+                |_, _| Ok(()),
+            )?;
+
+            // Update auction status
+            Auctions::<T>::mutate((collection_id, item_id), |auction| {
+                if let Some(auction_info) = auction {
+                    auction_info.ended = true;
+                    auction_info.highest_bidder = Some(buyer.clone());
+                }
+            });
+
+            // Remove from in-auction tracking
+            InAuction::<T>::remove((collection_id, item_id));
+
+            // Clear bids
+            Bids::<T>::remove((collection_id, item_id));
+
+            // Emit auction resolved event
+            Self::deposit_event(Event::AuctionResolved(
+                collection_id.clone(),
+                *item_id,
+                buyer.clone(),
+                bid_amount,
+            ));
 
             Ok(())
         }
