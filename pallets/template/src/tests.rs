@@ -1,7 +1,9 @@
-use crate::{mock::*, Error, Event};
+use crate::{mock::*, AccumulatedFees, Error, Event};
 use frame_support::traits::nonfungibles::Create;
 use frame_support::traits::OnInitialize;
 use frame_support::{assert_noop, assert_ok};
+use frame_system::Origin;
+use frame_support::traits::Currency;
 
 #[test]
 fn list_nft_for_auction_works() {
@@ -451,6 +453,82 @@ fn choose_buyer_works() {
 }
 
 #[test]
+fn fee_accumulation_works() {
+    new_test_ext().execute_with(|| {
+        // Arrange: Set block number, list an asset, and place bids
+        System::set_block_number(1);
+
+        let fee_percent = 10;
+        assert_ok!(Template::set_fee_percentage(Origin::<Test>::Root.into(), fee_percent));
+
+        let collection_id = 1;
+        let item_id = 1;
+        let owner = 1;
+
+        // Create a collection
+        assert_ok!(pallet_uniques::Pallet::<Test>::create_collection(
+            &collection_id,
+            &owner,
+            &owner
+        ));
+
+        // Mint an NFT to the owner
+        assert_ok!(pallet_uniques::Pallet::<Test>::mint(
+            RuntimeOrigin::signed(owner),
+            collection_id,
+            item_id,
+            owner
+        ));
+
+        // Ensure ownership is correct
+        let nft_owner = pallet_uniques::Pallet::<Test>::owner(collection_id, item_id);
+        assert_eq!(nft_owner, Some(owner));
+
+        // Act: List the NFT for auction
+        assert_ok!(Template::list_nft_for_auction(
+            RuntimeOrigin::signed(owner),
+            collection_id,
+            item_id
+        ));
+
+        assert_ok!(Template::place_bid(
+            RuntimeOrigin::signed(2),
+            collection_id,
+            item_id,
+            50
+        ));
+        assert_ok!(Template::place_bid(
+            RuntimeOrigin::signed(3),
+            collection_id,
+            item_id,
+            60
+        ));
+
+        // Act: Owner chooses a buyer (not the highest bidder)
+        assert_ok!(Template::resolve_auction(
+            RuntimeOrigin::signed(1),
+            collection_id,
+            item_id
+        ));
+
+        // Check Template is marked as ended
+        let auction = Template::auctions((collection_id, item_id)).unwrap();
+        assert_eq!(auction.ended, true);
+
+        let bid_amount = 60;
+        let fee_amount = bid_amount * (fee_percent as u128) / 100u128;
+
+        // Check funds were transferred
+        assert_eq!(Balances::reserved_balance(2), 0); // Other bidder's funds released
+        assert_eq!(Balances::reserved_balance(3), 0); // Non funds left
+        assert_eq!(Template::accumulated_fees(), fee_amount);
+
+        // Check event was emitted
+        System::assert_last_event(Event::AuctionResolved(collection_id, item_id, 3, 60).into());
+    });
+}
+
+#[test]
 fn only_owner_can_choose_buyer() {
     new_test_ext().execute_with(|| {
         // Arrange: List an asset and place a bid
@@ -735,4 +813,28 @@ fn auction_with_no_bids_fails_on_timeout() {
         // Check Template failed event
         System::assert_has_event(Event::AuctionFailed(collection_id, item_id).into());
     });
+}
+
+#[test]
+fn set_fee_percentage_works() {
+	new_test_ext().execute_with(|| {
+		assert_ok!(Template::set_fee_percentage(Origin::<Test>::Root.into(), 5));
+		assert_eq!(Template::fee_percentage(), 5);
+	});
+}
+
+#[test]
+fn withdraw_fees_works() {
+	new_test_ext().execute_with(|| {
+		let receiver = 3;
+		let fee_amount = 50;
+
+		// Set some fees manually
+		AccumulatedFees::<Test>::put(fee_amount);
+		let pallet_account = Template::account_id();
+		Balances::make_free_balance_be(&pallet_account, fee_amount);
+
+		assert_ok!(Template::withdraw_fees(Origin::<Test>::Root.into(), receiver));
+		assert_eq!(Template::accumulated_fees(), 0);
+	});
 }

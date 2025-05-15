@@ -12,6 +12,7 @@ pub use pallet::*;
 pub mod pallet {
     use frame_support::{
         pallet_prelude::*,
+        PalletId,
         traits::{Currency, ExistenceRequirement, ReservableCurrency, WithdrawReasons},
         transactional,
     };
@@ -19,9 +20,12 @@ pub mod pallet {
     use sp_runtime::traits::{CheckedDiv, Zero};
     use sp_runtime::Saturating;
     use sp_std::prelude::*;
+    use sp_runtime::traits::AccountIdConversion;
 
     type AccountIdOf<T> = <T as frame_system::Config>::AccountId;
     type BalanceOf<T> = <<T as Config>::Currency as Currency<AccountIdOf<T>>>::Balance;
+
+    const PALLET_ID: PalletId = PalletId(*b"ex/auctn");
 
     #[pallet::config]
     pub trait Config: frame_system::Config + pallet_uniques::Config {
@@ -71,6 +75,14 @@ pub mod pallet {
     pub type InAuction<T: Config> =
         StorageMap<_, Blake2_128Concat, (T::CollectionId, T::ItemId), bool, ValueQuery>;
 
+    #[pallet::storage]
+    #[pallet::getter(fn fee_percentage)]
+    pub(super) type FeePercentage<T> = StorageValue<_, u8, ValueQuery>; // e.g., 5 for 5%
+
+    #[pallet::storage]
+    #[pallet::getter(fn accumulated_fees)]
+    pub(super) type AccumulatedFees<T: Config> = StorageValue<_, BalanceOf<T>, ValueQuery>;
+
     /// Structure for auction information
     #[derive(Clone, Encode, Decode, Eq, PartialEq, RuntimeDebug, MaxEncodedLen, TypeInfo)]
     pub struct AuctionInfo<AccountId, Balance, BlockNumber> {
@@ -97,6 +109,8 @@ pub mod pallet {
         AuctionResolved(T::CollectionId, T::ItemId, T::AccountId, BalanceOf<T>),
         /// An auction failed to find a valid buyer. [collection_id, item_id]
         AuctionFailed(T::CollectionId, T::ItemId),
+        FeePercentageSet(u8),
+        FeesWithdrawn(T::AccountId, BalanceOf<T>)
     }
 
     #[pallet::error]
@@ -119,6 +133,8 @@ pub mod pallet {
         NoValidBuyer,
         /// Collection or item does not exist
         NftNotFound,
+        InvalidFee,
+        NoFeesAvailable,
     }
 
     #[pallet::pallet]
@@ -161,7 +177,7 @@ pub mod pallet {
             origin: OriginFor<T>,
             collection_id: T::CollectionId,
             item_id: T::ItemId,
-        ) -> DispatchResult {  
+        ) -> DispatchResult {
             let owner = ensure_signed(origin)?;
 
             // Ensure collection and item exist
@@ -326,9 +342,39 @@ pub mod pallet {
 
             Ok(())
         }
+
+        #[pallet::call_index(3)]
+        #[pallet::weight(10_000)]
+        pub fn set_fee_percentage(origin: OriginFor<T>, fee: u8) -> DispatchResult {
+            ensure_root(origin)?; // Only Sudo (Root) can call
+            ensure!(fee <= 100, Error::<T>::InvalidFee);
+            FeePercentage::<T>::put(fee);
+            Self::deposit_event(Event::FeePercentageSet(fee));
+            Ok(())
+        }
+
+        #[pallet::call_index(4)]
+        #[pallet::weight(10_000)]
+        pub fn withdraw_fees(origin: OriginFor<T>, to: T::AccountId) -> DispatchResult {
+            ensure_root(origin)?;
+
+            let total_fees = AccumulatedFees::<T>::take();
+            if total_fees.is_zero() {
+                Err(Error::<T>::NoFeesAvailable)?
+            }
+
+            <T as Config>::Currency::transfer(&Self::account_id(), &to, total_fees,  ExistenceRequirement::AllowDeath)?;
+            Self::deposit_event(Event::FeesWithdrawn(to, total_fees));
+            Ok(())
+        }
+
     }
 
     impl<T: Config> Pallet<T> {
+        pub fn account_id() -> T::AccountId {
+            PALLET_ID.into_account_truncating()
+        }
+
         // Auto-resolve auction after timeout
         fn auto_resolve_auction(
             collection_id: &T::CollectionId,
@@ -365,7 +411,6 @@ pub mod pallet {
                         }
                     }
                     // If all transfers fail, emit auction failed event
-                    
                     auction_info.ended = true;
                     Auctions::<T>::insert((collection_id, item_id), &auction_info);
                     Self::deposit_event(Event::AuctionFailed(collection_id.clone(), *item_id));
@@ -418,7 +463,7 @@ pub mod pallet {
             let seller_amount = bid_amount.saturating_sub(royalty_amount);
 
             // Perform atomic transactions
-           let _ = <T as Config>::Currency::unreserve(buyer, bid_amount.into());
+            let _ = <T as Config>::Currency::unreserve(buyer, bid_amount.into());
 
             // 1. Transfer funds from buyer
             let _ = <T as Config>::Currency::withdraw(
@@ -440,8 +485,15 @@ pub mod pallet {
                 }
             }
 
+            let fee_percent = FeePercentage::<T>::get(); // e.g., 5
+            let fee_amount = bid_amount * fee_percent.into() / 100u32.into();
+            let payout = bid_amount.saturating_sub(fee_amount);
+
             // 3. Pay remaining funds to auction owner
-            let _ = <T as Config>::Currency::deposit_creating(&auction_info.owner, seller_amount);
+            let _ = <T as Config>::Currency::deposit_creating(&auction_info.owner, payout);
+
+            // Add fee to pallet storage
+            AccumulatedFees::<T>::mutate(|f| *f += fee_amount);
 
             // 4. Unfreeze the NFT before transferring
             pallet_uniques::Pallet::<T>::thaw(

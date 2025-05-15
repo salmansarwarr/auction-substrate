@@ -1,10 +1,9 @@
 use crate as pallet_template;
 use frame_support::derive_impl;
 use frame_support::{
-    parameter_types,
     traits::{ConstU128, ConstU32, ConstU64, ConstU8},
 };
-use frame_system::{self as system, EnsureRoot};
+use frame_system::{self as system};
 use sp_core::H256;
 use sp_runtime::{
     traits::{BlakeTwo256, IdentityLookup},
@@ -12,8 +11,6 @@ use sp_runtime::{
 };
 
 type Block = frame_system::mocking::MockBlock<Test>;
-
-pub const MILLI_UNIT: u128 = 1_000_000_000;
 
 #[frame_support::runtime]
 mod runtime {

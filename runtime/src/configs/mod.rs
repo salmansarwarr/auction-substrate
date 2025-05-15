@@ -35,10 +35,13 @@ use frame_support::{
 use frame_system::{limits::{BlockLength, BlockWeights}, EnsureRoot, EnsureSigned};
 use pallet_transaction_payment::{ConstFeeMultiplier, FungibleAdapter, Multiplier};
 use sp_consensus_aura::sr25519::AuthorityId as AuraId;
-use sp_runtime::{traits::One, Perbill};
+use sp_runtime::{generic, traits::{Extrinsic, IdentifyAccount, One, Verify}, AccountId32, MultiAddress, MultiSignature, Perbill, SaturatedConversion };
 use sp_version::RuntimeVersion;
+use sp_core::sr25519::Signature;
+use codec::Encode;
 
-// Local module imports
+use crate::UncheckedExtrinsic;
+
 use super::{
 	AccountId, Aura, Balance, Balances, Block, BlockNumber, Hash, Nonce, PalletInfo, Runtime,
 	RuntimeCall, RuntimeEvent, RuntimeFreezeReason, RuntimeHoldReason, RuntimeOrigin, RuntimeTask,
@@ -268,4 +271,118 @@ impl pallet_template::Config for Runtime {
 	type AuctionTimeoutBlocks = ConstU32<100>; // 100 blocks as per your requirement
 
 	type RoyaltyPercentage = RoyaltyPercentage;
+}
+
+pub type SignedExtra = (
+	frame_system::CheckNonZeroSender<Runtime>,
+	frame_system::CheckSpecVersion<Runtime>,
+	frame_system::CheckTxVersion<Runtime>,
+	frame_system::CheckGenesis<Runtime>,
+	frame_system::CheckEra<Runtime>,
+	frame_system::CheckNonce<Runtime>,
+	frame_system::CheckWeight<Runtime>,
+	pallet_transaction_payment::ChargeTransactionPayment<Runtime>,
+    frame_metadata_hash_extension::CheckMetadataHash<Runtime>,
+    frame_system::WeightReclaim<Runtime>,
+);
+
+pub type SignedPayload = generic::SignedPayload<RuntimeCall, SignedExtra>;
+
+parameter_types! {
+	pub const UnsignedPriority: u64 = 1 << 20;
+}
+
+impl frame_system::offchain::SigningTypes for Runtime {
+	type Public = sp_runtime::MultiSigner;
+	type Signature = Signature;
+}
+
+impl<LocalCall> frame_system::offchain::CreateTransactionBase<LocalCall> for Runtime
+where
+    RuntimeCall: From<LocalCall>,
+{
+    type RuntimeCall = RuntimeCall;
+    // Use your actual UncheckedExtrinsic type, not the trait
+    type Extrinsic = UncheckedExtrinsic;
+}
+
+impl frame_system::offchain::CreateInherent<pallet_example_offchain_worker::Call<Runtime>> for Runtime {
+    fn create_inherent(call: RuntimeCall) -> UncheckedExtrinsic {
+        UncheckedExtrinsic::new_bare(call)
+    }
+}
+
+impl frame_system::offchain::CreateSignedTransaction<pallet_example_offchain_worker::Call<Runtime>> for Runtime
+{
+    fn create_signed_transaction<C: frame_system::offchain::AppCrypto<Self::Public, Self::Signature>>(
+        call: RuntimeCall,
+        public: Self::Public,
+        account: AccountId,
+        nonce: Nonce,
+    ) -> Option<UncheckedExtrinsic> {
+        // Create a signed transaction for the call
+        let period = BlockHashCount::get() as u64;
+        let current_block = System::block_number()
+            .saturated_into::<u64>()
+            .saturating_sub(1);
+        let tip = 0;
+        let extra: SignedExtra = (
+            frame_system::CheckNonZeroSender::<Runtime>::new(),
+            frame_system::CheckSpecVersion::<Runtime>::new(),
+            frame_system::CheckTxVersion::<Runtime>::new(),
+            frame_system::CheckGenesis::<Runtime>::new(),
+            frame_system::CheckEra::<Runtime>::from(generic::Era::mortal(period, current_block)),
+            frame_system::CheckNonce::<Runtime>::from(nonce),
+            frame_system::CheckWeight::<Runtime>::new(),
+            pallet_transaction_payment::ChargeTransactionPayment::<Runtime>::from(tip),
+            frame_metadata_hash_extension::CheckMetadataHash::<Runtime>::new(false),
+            frame_system::WeightReclaim::<Runtime>::new(),
+        );
+
+        let raw_payload = SignedPayload::new(call, extra)
+            .map_err(|e| {
+                // log::warn!("Unable to create signed payload: {:?}", e);
+             })
+            .ok()?;
+        let signature = raw_payload.using_encoded(|payload| C::sign(payload, public))?;
+        let address = account;
+        let (call, extra, _) = raw_payload.deconstruct();
+        
+        Some(UncheckedExtrinsic::new_signed(
+            call,
+            address.into(),
+            signature.into(),
+            extra,
+        ))
+    }
+}
+
+pub mod crypto {
+    use pallet_example_offchain_worker::KEY_TYPE;
+    use sp_core::crypto::KeyTypeId;
+    use sp_runtime::{
+        app_crypto::{app_crypto, sr25519},
+        traits::Verify,
+        MultiSignature, MultiSigner,
+    };
+    
+    app_crypto!(sr25519, KEY_TYPE);
+
+    pub struct OffchainAuthId;
+    
+    // Implementation for MultiSignature setup
+    impl frame_system::offchain::AppCrypto<MultiSigner, MultiSignature> for OffchainAuthId {
+        type RuntimeAppPublic = Public;
+        type GenericSignature = sp_core::sr25519::Signature;
+        type GenericPublic = sp_core::sr25519::Public;
+    }
+}
+
+impl pallet_example_offchain_worker::Config for Runtime {
+	type AuthorityId = pallet_example_offchain_worker::crypto::TestAuthId;
+	type RuntimeEvent = RuntimeEvent;
+	type GracePeriod = ConstU32<5>;
+	type UnsignedInterval = ConstU32<128>;
+	type UnsignedPriority = UnsignedPriority;
+	type MaxPrices = ConstU32<64>;
 }

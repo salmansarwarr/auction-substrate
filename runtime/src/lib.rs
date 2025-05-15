@@ -10,6 +10,7 @@ pub mod configs;
 
 extern crate alloc;
 use alloc::vec::Vec;
+use configs::SignedExtra;
 use sp_runtime::{
 	generic, impl_opaque_keys,
 	traits::{BlakeTwo256, IdentifyAccount, Verify},
@@ -146,26 +147,26 @@ pub type SignedBlock = generic::SignedBlock<Block>;
 /// BlockId type as expected by this runtime.
 pub type BlockId = generic::BlockId<Block>;
 
-/// The `TransactionExtension` to the basic transaction logic.
-pub type TxExtension = (
-	frame_system::CheckNonZeroSender<Runtime>,
-	frame_system::CheckSpecVersion<Runtime>,
-	frame_system::CheckTxVersion<Runtime>,
-	frame_system::CheckGenesis<Runtime>,
-	frame_system::CheckEra<Runtime>,
-	frame_system::CheckNonce<Runtime>,
-	frame_system::CheckWeight<Runtime>,
-	pallet_transaction_payment::ChargeTransactionPayment<Runtime>,
-	frame_metadata_hash_extension::CheckMetadataHash<Runtime>,
-	frame_system::WeightReclaim<Runtime>,
-);
+	/// The `TransactionExtension` to the basic transaction logic.
+	pub type TxExtension = (
+		frame_system::CheckNonZeroSender<Runtime>,
+		frame_system::CheckSpecVersion<Runtime>,
+		frame_system::CheckTxVersion<Runtime>,
+		frame_system::CheckGenesis<Runtime>,
+		frame_system::CheckEra<Runtime>,
+		frame_system::CheckNonce<Runtime>,
+		frame_system::CheckWeight<Runtime>,
+		pallet_transaction_payment::ChargeTransactionPayment<Runtime>,
+		frame_metadata_hash_extension::CheckMetadataHash<Runtime>,
+		frame_system::WeightReclaim<Runtime>,
+	);
 
-/// Unchecked extrinsic type as expected by this runtime.
-pub type UncheckedExtrinsic =
-	generic::UncheckedExtrinsic<Address, RuntimeCall, Signature, TxExtension>;
+	/// Unchecked extrinsic type as expected by this runtime.
+	pub type UncheckedExtrinsic =
+		generic::UncheckedExtrinsic<Address, RuntimeCall, Signature, SignedExtra>;
 
-/// The payload being signed in transactions.
-pub type SignedPayload = generic::SignedPayload<RuntimeCall, TxExtension>;
+	/// The payload being signed in transactions.
+	pub type SignedPayload = generic::SignedPayload<RuntimeCall, TxExtension>;
 
 /// All migrations of the runtime, aside from the ones declared in the pallets.
 ///
@@ -230,5 +231,8 @@ mod runtime {
 	pub type Assets = pallet_assets;
 
 	#[runtime::pallet_index(9)]
-	pub type Uniques = pallet_uniques;
+	pub type Uniques = pallet_uniques;	
+
+	#[runtime::pallet_index(10)]
+	pub type OffchainWorker = pallet_example_offchain_worker;
 }
