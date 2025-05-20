@@ -49,6 +49,7 @@ sp-storage.workspace = true
 sp-transaction-pool.workspace = true
 sp-version = { features = ["serde"], workspace = true }
 pallet-uniques.workspace = true
+pallet-migrations.workspace = true
 
 [build-dependencies]
 substrate-wasm-builder = { optional = true, workspace = true, default-features = true }
@@ -93,6 +94,7 @@ std = [
 	"sp-version/std",
 	"substrate-wasm-builder",
 	"pallet-uniques/std",
+	"pallet-migrations/std"
 ]
 
 runtime-benchmarks = [
@@ -103,10 +105,11 @@ runtime-benchmarks = [
 	"pallet-balances/runtime-benchmarks",
 	"pallet-grandpa/runtime-benchmarks",
 	"pallet-sudo/runtime-benchmarks",
-	"pallet-template/runtime-benchmarks",
 	"pallet-timestamp/runtime-benchmarks",
 	"pallet-transaction-payment/runtime-benchmarks",
 	"sp-runtime/runtime-benchmarks",
+	"pallet-uniques/runtime-benchmarks",
+	"pallet-template/runtime-benchmarks"
 ]
 
 try-runtime = [

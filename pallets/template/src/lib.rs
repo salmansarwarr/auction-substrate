@@ -1,10 +1,16 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
 #[cfg(test)]
-mod mock;
+pub mod mock;
 
 #[cfg(test)]
-mod tests;
+pub mod tests;
+
+#[cfg(feature = "runtime-benchmarks")]
+pub mod benchmarking;
+
+pub mod weights;
+
 
 pub use pallet::*;
 
@@ -12,15 +18,15 @@ pub use pallet::*;
 pub mod pallet {
     use frame_support::{
         pallet_prelude::*,
-        PalletId,
         traits::{Currency, ExistenceRequirement, ReservableCurrency, WithdrawReasons},
-        transactional,
+        transactional, PalletId,
     };
     use frame_system::pallet_prelude::*;
+    use sp_runtime::traits::AccountIdConversion;
     use sp_runtime::traits::{CheckedDiv, Zero};
     use sp_runtime::Saturating;
     use sp_std::prelude::*;
-    use sp_runtime::traits::AccountIdConversion;
+    use crate::weights::WeightInfo;
 
     type AccountIdOf<T> = <T as frame_system::Config>::AccountId;
     type BalanceOf<T> = <<T as Config>::Currency as Currency<AccountIdOf<T>>>::Balance;
@@ -45,6 +51,8 @@ pub mod pallet {
         /// Royalty percentage for original creators (0-100)
         #[pallet::constant]
         type RoyaltyPercentage: Get<u8>;
+
+        type WeightInfo: WeightInfo;
     }
 
     /// Auctions information
@@ -110,7 +118,7 @@ pub mod pallet {
         /// An auction failed to find a valid buyer. [collection_id, item_id]
         AuctionFailed(T::CollectionId, T::ItemId),
         FeePercentageSet(u8),
-        FeesWithdrawn(T::AccountId, BalanceOf<T>)
+        FeesWithdrawn(T::AccountId, BalanceOf<T>),
     }
 
     #[pallet::error]
@@ -344,7 +352,7 @@ pub mod pallet {
         }
 
         #[pallet::call_index(3)]
-        #[pallet::weight(10_000)]
+        #[pallet::weight(<T as Config>::WeightInfo::set_fee_percentage())]
         pub fn set_fee_percentage(origin: OriginFor<T>, fee: u8) -> DispatchResult {
             ensure_root(origin)?; // Only Sudo (Root) can call
             ensure!(fee <= 100, Error::<T>::InvalidFee);
@@ -353,7 +361,7 @@ pub mod pallet {
             Ok(())
         }
 
-        #[pallet::call_index(4)]
+       #[pallet::call_index(4)]
         #[pallet::weight(10_000)]
         pub fn withdraw_fees(origin: OriginFor<T>, to: T::AccountId) -> DispatchResult {
             ensure_root(origin)?;
@@ -363,11 +371,17 @@ pub mod pallet {
                 Err(Error::<T>::NoFeesAvailable)?
             }
 
-            <T as Config>::Currency::transfer(&Self::account_id(), &to, total_fees,  ExistenceRequirement::AllowDeath)?;
+            log::info!("Pallet account balance: {:?}", <T as Config>::Currency::free_balance(&Self::account_id()));
+
+            <T as Config>::Currency::transfer(
+                &Self::account_id(),
+                &to,
+                total_fees,
+                ExistenceRequirement::AllowDeath,
+            )?;
             Self::deposit_event(Event::FeesWithdrawn(to, total_fees));
             Ok(())
         }
-
     }
 
     impl<T: Config> Pallet<T> {
@@ -460,7 +474,7 @@ pub mod pallet {
                 .unwrap_or_else(|| Zero::zero());
 
             // Calculate seller's amount (total bid minus royalty)
-            let seller_amount = bid_amount.saturating_sub(royalty_amount);
+            let _seller_amount = bid_amount.saturating_sub(royalty_amount);
 
             // Perform atomic transactions
             let _ = <T as Config>::Currency::unreserve(buyer, bid_amount.into());
@@ -491,6 +505,9 @@ pub mod pallet {
 
             // 3. Pay remaining funds to auction owner
             let _ = <T as Config>::Currency::deposit_creating(&auction_info.owner, payout);
+
+            // Transfer fees to pallet account
+            let _ = <T as Config>::Currency::deposit_creating(&Self::account_id(), fee_amount);
 
             // Add fee to pallet storage
             AccumulatedFees::<T>::mutate(|f| *f += fee_amount);

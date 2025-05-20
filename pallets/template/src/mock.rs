@@ -114,6 +114,7 @@ impl pallet_uniques::Config for Test {
     type KeyLimit = ConstU32<32>;
     type ValueLimit = ConstU32<64>;
     type WeightInfo = ();
+    type Helper = ();
 }
 
 pub fn new_test_ext() -> sp_io::TestExternalities {

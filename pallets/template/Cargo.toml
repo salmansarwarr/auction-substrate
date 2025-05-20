@@ -22,6 +22,8 @@ sp-std.workspace = true
 sp-runtime.workspace = true
 pallet-balances.workspace = true
 pallet-uniques.workspace = true
+funty.workspace = true
+log.workspace = true
 
 [dev-dependencies]
 sp-core = { default-features = true, workspace = true }
@@ -38,7 +40,9 @@ std = [
 	"sp-std/std",
 	"sp-runtime/std",
 	"pallet-balances/std",
-	"pallet-uniques/std"
+	"pallet-uniques/std",
+	"funty/std",
+	"log/std"
 ]
 runtime-benchmarks = [
 	"frame-benchmarking/runtime-benchmarks",

@@ -73,7 +73,7 @@ fn cant_list_asset_twice() {
             &owner
         ));
 
-        // Mint an NFT to the owner
+        // x`` an NFT to the owner
         assert_ok!(pallet_uniques::Pallet::<Test>::mint(
             RuntimeOrigin::signed(owner),
             collection_id,

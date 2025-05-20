@@ -35,7 +35,7 @@ use frame_support::{
 use frame_system::{limits::{BlockLength, BlockWeights}, EnsureRoot, EnsureSigned};
 use pallet_transaction_payment::{ConstFeeMultiplier, FungibleAdapter, Multiplier};
 use sp_consensus_aura::sr25519::AuthorityId as AuraId;
-use sp_runtime::{generic, traits::{Extrinsic, IdentifyAccount, One, Verify}, AccountId32, MultiAddress, MultiSignature, Perbill, SaturatedConversion };
+use sp_runtime::{generic, traits::{One}, Perbill, SaturatedConversion };
 use sp_version::RuntimeVersion;
 use sp_core::sr25519::Signature;
 use codec::Encode;
@@ -250,7 +250,9 @@ impl pallet_uniques::Config for Runtime {
     type KeyLimit = KeyLimit;
     type ValueLimit = ValueLimit;
 
-    type WeightInfo = ();
+    type WeightInfo = pallet_uniques::weights::SubstrateWeight<Runtime>;
+
+    type Helper = ();
 }
 
 parameter_types! {
@@ -271,6 +273,8 @@ impl pallet_template::Config for Runtime {
 	type AuctionTimeoutBlocks = ConstU32<100>; // 100 blocks as per your requirement
 
 	type RoyaltyPercentage = RoyaltyPercentage;
+
+    type WeightInfo = pallet_template::weights::SubstrateWeight<Runtime>;    
 }
 
 pub type SignedExtra = (
@@ -340,7 +344,7 @@ impl frame_system::offchain::CreateSignedTransaction<pallet_example_offchain_wor
         );
 
         let raw_payload = SignedPayload::new(call, extra)
-            .map_err(|e| {
+            .map_err(|_e| {
                 // log::warn!("Unable to create signed payload: {:?}", e);
              })
             .ok()?;
@@ -359,10 +363,8 @@ impl frame_system::offchain::CreateSignedTransaction<pallet_example_offchain_wor
 
 pub mod crypto {
     use pallet_example_offchain_worker::KEY_TYPE;
-    use sp_core::crypto::KeyTypeId;
     use sp_runtime::{
         app_crypto::{app_crypto, sr25519},
-        traits::Verify,
         MultiSignature, MultiSigner,
     };
     
@@ -386,3 +388,4 @@ impl pallet_example_offchain_worker::Config for Runtime {
 	type UnsignedPriority = UnsignedPriority;
 	type MaxPrices = ConstU32<64>;
 }
+

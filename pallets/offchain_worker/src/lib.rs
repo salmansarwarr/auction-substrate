@@ -1,5 +1,13 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
+#[cfg(test)]
+pub mod mock;
+
+#[cfg(test)]
+pub mod tests;
+
+pub mod migrations;
+
 extern crate alloc;
 
 use alloc::vec::Vec;
@@ -33,7 +41,6 @@ pub mod crypto {
     use sp_core::sr25519::Signature as Sr25519Signature;
     use sp_runtime::{
         app_crypto::{app_crypto, sr25519},
-        traits::Verify,
         MultiSignature, MultiSigner,
     };
     app_crypto!(sr25519, KEY_TYPE);
@@ -94,6 +101,7 @@ pub mod pallet {
     }
 
     #[pallet::pallet]
+    #[pallet::storage_version(migrations::STORAGE_VERSION)]
     pub struct Pallet<T>(_);
 
     #[pallet::hooks]
@@ -108,7 +116,7 @@ pub mod pallet {
                 parent_hash
             );
 
-            let average: Option<u32> = Self::average_price();
+            let average: Option<u64> = Self::average_price();
             log::debug!("Current price: {:?}", average);
 
             let should_send = Self::choose_transaction_type(block_number);
@@ -133,7 +141,7 @@ pub mod pallet {
     impl<T: Config> Pallet<T> {
         #[pallet::call_index(0)]
         #[pallet::weight({0})]
-        pub fn submit_price(origin: OriginFor<T>, price: u32) -> DispatchResultWithPostInfo {
+        pub fn submit_price(origin: OriginFor<T>, price: u64) -> DispatchResultWithPostInfo {
             // Retrieve sender of the transaction.
             let who = ensure_signed(origin)?;
             // Add the price to the on-chain list.
@@ -146,7 +154,7 @@ pub mod pallet {
         pub fn submit_price_unsigned(
             origin: OriginFor<T>,
             _block_number: BlockNumberFor<T>,
-            price: u32,
+            price: u64,
         ) -> DispatchResultWithPostInfo {
             ensure_none(origin)?;
             Self::add_price(None, price);
@@ -174,7 +182,7 @@ pub mod pallet {
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
     pub enum Event<T: Config> {
         NewPrice {
-            price: u32,
+            price: u64,
             maybe_who: Option<T::AccountId>,
         },
     }
@@ -208,7 +216,7 @@ pub mod pallet {
     }
 
     #[pallet::storage]
-    pub(super) type Prices<T: Config> = StorageValue<_, BoundedVec<u32, T::MaxPrices>, ValueQuery>;
+    pub(super) type Prices<T: Config> = StorageValue<_, BoundedVec<u64, T::MaxPrices>, ValueQuery>;
 
     #[pallet::storage]
     pub(super) type NextUnsignedAt<T: Config> = StorageValue<_, BlockNumberFor<T>, ValueQuery>;
@@ -219,7 +227,7 @@ pub mod pallet {
 )]
 pub struct PricePayload<Public, BlockNumber> {
     block_number: BlockNumber,
-    price: u32,
+    price: u64,
     public: Public,
 }
 
@@ -376,7 +384,7 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
-    fn fetch_price() -> Result<u32, http::Error> {
+    fn fetch_price() -> Result<u64, http::Error> {
         let deadline = sp_io::offchain::timestamp().add(Duration::from_millis(2_000));
         let request =
             http::Request::get("https://min-api.cryptocompare.com/data/price?fsym=BTC&tsyms=USD");
@@ -414,7 +422,7 @@ impl<T: Config> Pallet<T> {
         Ok(price)
     }
 
-    fn parse_price(price_str: &str) -> Option<u32> {
+    fn parse_price(price_str: &str) -> Option<u64> {
         let val = lite_json::parse_json(price_str);
         let price = match val.ok()? {
             JsonValue::Object(obj) => {
@@ -430,14 +438,14 @@ impl<T: Config> Pallet<T> {
         };
 
         let exp = price.fraction_length.saturating_sub(2);
-        Some(price.integer as u32 * 100 + (price.fraction / 10_u64.pow(exp)) as u32)
+        Some(price.integer as u64 * 100 + (price.fraction / 10_u64.pow(exp)) as u64)
     }
 
-    fn add_price(maybe_who: Option<T::AccountId>, price: u32) {
+    fn add_price(maybe_who: Option<T::AccountId>, price: u64) {
         log::info!("Adding to the average: {}", price);
         <Prices<T>>::mutate(|prices| {
             if prices.try_push(price).is_err() {
-                prices[(price % T::MaxPrices::get()) as usize] = price;
+                prices[(price % T::MaxPrices::get() as u64) as usize] = price;
             }
         });
 
@@ -448,18 +456,18 @@ impl<T: Config> Pallet<T> {
         Self::deposit_event(Event::NewPrice { price, maybe_who });
     }
 
-    fn average_price() -> Option<u32> {
+    fn average_price() -> Option<u64> {
         let prices = Prices::<T>::get();
         if prices.is_empty() {
             None
         } else {
-            Some(prices.iter().fold(0_u32, |a, b| a.saturating_add(*b)) / prices.len() as u32)
+            Some(prices.iter().fold(0_u64, |a, b| a.saturating_add(*b)) / prices.len() as u64)
         }
     }
 
     fn validate_transaction_parameters(
         block_number: &BlockNumberFor<T>,
-        new_price: &u32,
+        new_price: &u64,
     ) -> TransactionValidity {
         let next_unsigned_at = NextUnsignedAt::<T>::get();
         if &next_unsigned_at > block_number {
