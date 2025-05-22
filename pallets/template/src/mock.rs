@@ -1,5 +1,8 @@
 use crate as pallet_template;
-use frame_support::derive_impl;
+use frame_support::{derive_impl};
+use frame_support::parameter_types;
+use frame_support::traits::Currency;
+use frame_support::PalletId;
 use frame_support::{
     traits::{ConstU128, ConstU32, ConstU64, ConstU8},
 };
@@ -86,12 +89,18 @@ impl pallet_balances::Config for Test {
     type DoneSlashHandler = ();
 }
 
+parameter_types! {
+    pub const TemplatePalletId: PalletId = PalletId(*b"ex/auctn");
+}
+
 impl pallet_template::Config for Test {
     type RuntimeEvent = RuntimeEvent;
     type Currency = Balances;
     type MaxBidsPerAuction = ConstU32<10>;
     type AuctionTimeoutBlocks = ConstU64<100>;
     type RoyaltyPercentage = ConstU8<10>;
+    type PalletId = TemplatePalletId;
+    type WeightInfo = ();
 }
 
 impl pallet_uniques::Config for Test {
@@ -118,6 +127,7 @@ impl pallet_uniques::Config for Test {
 }
 
 pub fn new_test_ext() -> sp_io::TestExternalities {
+    let pallet_account = pallet_template::Pallet::<Test>::account_id();
     let mut t = system::GenesisConfig::<Test>::default()
         .build_storage()
         .unwrap();
@@ -128,6 +138,7 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
             (3, 3000 * 1_000_000_000), // Bidder 2
             (4, 4000 * 1_000_000_000), // Bidder 3
             (5, 5000 * 1_000_000_000), // Bidder 4
+            (pallet_account, 1_000_000_000),
         ],
         dev_accounts: None,
     }
@@ -141,6 +152,7 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
         for account_id in 1..=5 {
             frame_system::Pallet::<Test>::inc_providers(&account_id);
         }
+        frame_system::Pallet::<Test>::inc_providers(&pallet_account);
         // Set block number to 1 for event emission
         frame_system::Pallet::<Test>::set_block_number(1);
     });

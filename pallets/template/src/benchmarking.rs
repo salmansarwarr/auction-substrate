@@ -15,6 +15,7 @@ mod benchmarks {
     use frame_support::{
         assert_ok,
         traits::{Currency, Hooks},
+        pallet_prelude::Zero,
     };
     use frame_system::RawOrigin;
     use sp_runtime::traits::{Bounded, One, StaticLookup};
@@ -177,76 +178,82 @@ mod benchmarks {
         assert_eq!(FeePercentage::<T>::get(), fee);
     }
 
-    // #[benchmark]
-    // fn withdraw_fees() {
-    //     // Setup initial fee
-    //     assert_ok!(Template::<T>::set_fee_percentage(
-    //         RawOrigin::Root.into(),
-    //         FEE_PERCENTAGE
-    //     ));
+    #[benchmark]
+    fn withdraw_fees() {
+        // Setup initial fee
+        assert_ok!(Template::<T>::set_fee_percentage(
+            RawOrigin::Root.into(),
+            FEE_PERCENTAGE
+        ));
 
-    //     // Create a complete auction cycle to generate fees
-    //     let seller: T::AccountId = whitelisted_caller();
-    //     fund_account::<T>(&seller, BalanceOf::<T>::max_value() / 100u32.into());
-    //     let (collection_id, item_id) = setup_nft::<T>(&seller);
+        // Create a complete auction cycle to generate fees
+        let seller: T::AccountId = whitelisted_caller();
+        fund_account::<T>(&seller, BalanceOf::<T>::max_value() / 100u32.into());
+        let (collection_id, item_id) = setup_nft::<T>(&seller);
 
-    //     assert_ok!(Template::<T>::list_nft_for_auction(
-    //         RawOrigin::Signed(seller.clone()).into(),
-    //         collection_id.clone(),
-    //         item_id.clone()
-    //     ));
+        assert_ok!(Template::<T>::list_nft_for_auction(
+            RawOrigin::Signed(seller.clone()).into(),
+            collection_id.clone(),
+            item_id.clone()
+        ));
 
-    //     let bidder: T::AccountId = account("bidder", 0, SEED);
-    //     let bid_amount = BalanceOf::<T>::from(100u32);
-    //     let min_balance = <T as pallet::Config>::Currency::minimum_balance();
-    //     fund_account::<T>(&bidder, bid_amount + min_balance * 5u32.into());
+        let bidder: T::AccountId = account("bidder", 0, SEED);
+        let bid_amount = BalanceOf::<T>::from(100u32);
+        let min_balance = <T as pallet::Config>::Currency::minimum_balance();
+        fund_account::<T>(&bidder, bid_amount + min_balance * 5u32.into());
 
-    //     assert_ok!(Template::<T>::place_bid(
-    //         RawOrigin::Signed(bidder.clone()).into(),
-    //         collection_id.clone(),
-    //         item_id.clone(),
-    //         bid_amount
-    //     ));
+        assert_ok!(Template::<T>::place_bid(
+            RawOrigin::Signed(bidder.clone()).into(),
+            collection_id.clone(),
+            item_id.clone(),
+            bid_amount
+        ));
 
-    //     // Resolve the auction
-    //     assert_ok!(Template::<T>::resolve_auction(
-    //         RawOrigin::Signed(seller.clone()).into(),
-    //         collection_id.clone(),
-    //         item_id.clone()
-    //     ));
+        // Resolve the auction
+        assert_ok!(Template::<T>::resolve_auction(
+            RawOrigin::Signed(seller.clone()).into(),
+            collection_id.clone(),
+            item_id.clone()
+        ));
 
-    //     // Create recipient for fees
-    //     let recipient: T::AccountId = account("recipient", 0, SEED);
+        // Create recipient for fees
+        let recipient: T::AccountId = account("recipient", 0, SEED);
 
-    //     // For benchmark purposes, directly add funds to pallet account to match accumulated fees
-    //     let fees = AccumulatedFees::<T>::get();
-    //     assert!(
-    //         !fees.is_zero(),
-    //         "No fees were accumulated during the auction"
-    //     );
+        // For benchmark purposes, directly add funds to pallet account to match accumulated fees
+        let fees = AccumulatedFees::<T>::get();
+        assert!(
+            !fees.is_zero(),
+            "No fees were accumulated during the auction"
+        );
 
-    //     // Manually ensure pallet account has sufficient funds for benchmark
-    //     <T as Config>::Currency::deposit_creating(&Template::<T>::account_id(), fees);
+        let initial_balance = <T as Config>::Currency::free_balance(&recipient);
 
-    //     let initial_balance = <T as Config>::Currency::free_balance(&recipient);
 
-    //     // Verify the pallet account has the correct balance
-    //     assert_eq!(
-    //         <T as Config>::Currency::free_balance(&Template::<T>::account_id()),
-    //         fees,
-    //         "Pallet account balance doesn't match accumulated fees"
-    //     );
+        assert!(
+            frame_system::Pallet::<T>::account_exists(&Template::<T>::account_id()),
+            "Account doesn't exist"
+        );
+        
+        // Manually ensure pallet account has sufficient funds for benchmark
+        <T as Config>::Currency::deposit_creating(&Template::<T>::account_id(), fees);
 
-    //     #[extrinsic_call]
-    //     withdraw_fees(RawOrigin::Root, recipient.clone());
+        // Verify the pallet account has the correct balance
+        assert_eq!(
+            <T as Config>::Currency::free_balance(&Template::<T>::account_id()),
+            fees,
+            "Pallet account balance doesn't match accumulated fees"
+        );
 
-    //     // Verify the fees were properly transferred
-    //     assert_eq!(AccumulatedFees::<T>::get(), BalanceOf::<T>::zero());
-    //     assert_eq!(
-    //         <T as Config>::Currency::free_balance(&recipient),
-    //         initial_balance + fees
-    //     );
-    // }
+        #[extrinsic_call]
+        withdraw_fees(RawOrigin::Root, recipient.clone());
+
+        // Verify the fees were properly transferred
+        assert_eq!(AccumulatedFees::<T>::get(), BalanceOf::<T>::zero());
+        assert_eq!(
+            <T as Config>::Currency::free_balance(&recipient),
+            initial_balance + fees
+        );
+    }
 
     #[benchmark]
     fn on_initialize() {

@@ -9,13 +9,16 @@ pub mod tests;
 #[cfg(feature = "runtime-benchmarks")]
 pub mod benchmarking;
 
-pub mod weights;
+pub mod migrations;
 
+pub mod weights;
 
 pub use pallet::*;
 
 #[frame_support::pallet]
 pub mod pallet {
+    use crate::migrations;
+    use crate::weights::WeightInfo;
     use frame_support::{
         pallet_prelude::*,
         traits::{Currency, ExistenceRequirement, ReservableCurrency, WithdrawReasons},
@@ -26,12 +29,9 @@ pub mod pallet {
     use sp_runtime::traits::{CheckedDiv, Zero};
     use sp_runtime::Saturating;
     use sp_std::prelude::*;
-    use crate::weights::WeightInfo;
 
     type AccountIdOf<T> = <T as frame_system::Config>::AccountId;
     type BalanceOf<T> = <<T as Config>::Currency as Currency<AccountIdOf<T>>>::Balance;
-
-    const PALLET_ID: PalletId = PalletId(*b"ex/auctn");
 
     #[pallet::config]
     pub trait Config: frame_system::Config + pallet_uniques::Config {
@@ -51,6 +51,8 @@ pub mod pallet {
         /// Royalty percentage for original creators (0-100)
         #[pallet::constant]
         type RoyaltyPercentage: Get<u8>;
+
+        type PalletId: Get<PalletId>;
 
         type WeightInfo: WeightInfo;
     }
@@ -147,6 +149,7 @@ pub mod pallet {
 
     #[pallet::pallet]
     #[pallet::without_storage_info]
+    #[pallet::storage_version(migrations::STORAGE_VERSION)]
     pub struct Pallet<T>(_);
 
     #[pallet::hooks]
@@ -352,7 +355,7 @@ pub mod pallet {
         }
 
         #[pallet::call_index(3)]
-        #[pallet::weight(<T as Config>::WeightInfo::set_fee_percentage())]
+        #[pallet::weight(10_000)]
         pub fn set_fee_percentage(origin: OriginFor<T>, fee: u8) -> DispatchResult {
             ensure_root(origin)?; // Only Sudo (Root) can call
             ensure!(fee <= 100, Error::<T>::InvalidFee);
@@ -361,7 +364,7 @@ pub mod pallet {
             Ok(())
         }
 
-       #[pallet::call_index(4)]
+        #[pallet::call_index(4)]
         #[pallet::weight(10_000)]
         pub fn withdraw_fees(origin: OriginFor<T>, to: T::AccountId) -> DispatchResult {
             ensure_root(origin)?;
@@ -371,7 +374,10 @@ pub mod pallet {
                 Err(Error::<T>::NoFeesAvailable)?
             }
 
-            log::info!("Pallet account balance: {:?}", <T as Config>::Currency::free_balance(&Self::account_id()));
+            log::info!(
+                "Pallet account balance: {:?}",
+                <T as Config>::Currency::free_balance(&Self::account_id())
+            );
 
             <T as Config>::Currency::transfer(
                 &Self::account_id(),
@@ -386,7 +392,7 @@ pub mod pallet {
 
     impl<T: Config> Pallet<T> {
         pub fn account_id() -> T::AccountId {
-            PALLET_ID.into_account_truncating()
+            T::PalletId::get().into_account_truncating()
         }
 
         // Auto-resolve auction after timeout

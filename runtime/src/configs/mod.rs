@@ -38,6 +38,7 @@ use sp_consensus_aura::sr25519::AuthorityId as AuraId;
 use sp_runtime::{generic, traits::{One}, Perbill, SaturatedConversion };
 use sp_version::RuntimeVersion;
 use sp_core::sr25519::Signature;
+use frame_support::PalletId;
 use codec::Encode;
 
 use crate::UncheckedExtrinsic;
@@ -257,6 +258,7 @@ impl pallet_uniques::Config for Runtime {
 
 parameter_types! {
     pub const RoyaltyPercentage: u8 = 10; // 10% royalty
+    pub const TemplatePalletId: PalletId = PalletId(*b"ex/auctn");
 }
 
 /// Configure the pallet-template in pallets/template.
@@ -273,6 +275,8 @@ impl pallet_template::Config for Runtime {
 	type AuctionTimeoutBlocks = ConstU32<100>; // 100 blocks as per your requirement
 
 	type RoyaltyPercentage = RoyaltyPercentage;
+
+    type PalletId = TemplatePalletId;
 
     type WeightInfo = pallet_template::weights::SubstrateWeight<Runtime>;    
 }
