@@ -7680,6 +7680,7 @@ dependencies = [
  "axum",
  "chrono",
  "hex",
+ "rand 0.9.1",
  "serde",
  "serde_json",
  "sp-core",
