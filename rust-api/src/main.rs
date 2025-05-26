@@ -18,7 +18,6 @@ use tower_http::cors::CorsLayer;
 
 // Add these constants based on your chain configuration
 const MILLI_UNIT: u128 = 1_000_000_000;
-const EXISTENTIAL_DEPOSIT: u128 = MILLI_UNIT;
 
 // Generate the metadata at compile time
 #[subxt::subxt(runtime_metadata_path = "metadata.scale")]
@@ -53,6 +52,33 @@ pub struct RemarkRequest {
 #[derive(Deserialize)]
 pub struct BatchRequest {
     pub calls: Vec<CallData>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct ListNftRequest {
+    pub collection_id: u32,
+    pub item_id: u32,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct PlaceBidRequest {
+    pub collection_id: u32,
+    pub item_id: u32,
+    pub bid_amount: u128,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct AuctionResponse {
+    pub tx_hash: String
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct AuctionInfo {
+    pub owner: String,
+    pub start_block: u64,
+    pub highest_bid: u128,
+    pub highest_bidder: Option<String>,
+    pub ended: bool,
 }
 
 #[derive(Deserialize)]
@@ -518,6 +544,294 @@ async fn get_wallet_info(State(state): State<AppState>) -> Json<serde_json::Valu
     }))
 }
 
+// List NFT for auction
+pub async fn list_nft_for_auction(
+    State(state): State<AppState>,
+    Json(payload): Json<ListNftRequest>,
+) -> Result<Json<AuctionResponse>, (StatusCode, Json<ErrorResponse>)> {
+    // Before submitting your remark transaction:
+    let balance = check_balance(
+        &state.client,
+        &state.wallet_keypair.public_key().to_account_id(),
+    )
+    .await
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        )
+    });
+
+    match balance {
+        Ok(amount) => {
+            println!("Current balance: {}", amount);
+
+            if amount == 0 {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(ErrorResponse {
+                        error: "Insufficient funds. Please fund your wallet first.".to_string(),
+                    }),
+                ));
+            }
+        }
+        Err(e) => {
+            return Err(e);
+        }
+    }
+
+    // Create the transaction
+    let list_tx = polkadot::tx().template().list_nft_for_auction(
+        payload.collection_id,
+        payload.item_id,
+    );
+
+    // Submit transaction
+    let tx_progress = state
+        .client
+        .tx()
+        .sign_and_submit_then_watch_default(&list_tx, &state.wallet_keypair)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: format!("Failed to submit transaction: {}", e),
+                }),
+            )
+        })?;
+
+    let events = tx_progress.wait_for_finalized_success().await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: format!("Transaction failed: {}", e),
+                }),
+            )
+        })?;
+
+    Ok(Json(AuctionResponse {
+        tx_hash: format!("{:?}", events.extrinsic_hash())
+    }))
+}
+
+// Place bid on auction
+pub async fn place_bid(
+    State(state): State<AppState>,
+    Json(payload): Json<PlaceBidRequest>,
+) -> Result<Json<AuctionResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let keypair = get_keypair_from_keyring(&"alice")
+        .map_err(|e| (StatusCode::BAD_REQUEST, Json(ErrorResponse { error: e.to_string() })))?;
+
+    let bid_tx = polkadot::tx().template().place_bid(
+        payload.collection_id,
+        payload.item_id,
+        payload.bid_amount,
+    );
+
+    let tx_progress = state
+        .client
+        .tx()
+        .sign_and_submit_then_watch_default(&bid_tx, &keypair)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: format!("Failed to submit bid: {}", e),
+                }),
+            )
+        })?;
+
+    let events = tx_progress.wait_for_finalized_success().await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: format!("Bid transaction failed: {}", e),
+                }),
+            )
+        })?;
+
+    Ok(Json(AuctionResponse {
+        tx_hash: format!("{:?}", events.extrinsic_hash())
+    }))
+}
+
+// Resolve auction
+pub async fn resolve_auction(
+    State(state): State<AppState>,
+    Path((collection_id, item_id)): Path<(u32, u32)>,
+) -> Result<Json<AuctionResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let resolve_tx = polkadot::tx().template().resolve_auction(
+        collection_id,
+        item_id,
+    );
+
+    let tx_progress = state
+        .client
+        .tx()
+        .sign_and_submit_then_watch_default(&resolve_tx, &state.wallet_keypair)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: format!("Failed to resolve auction: {}", e),
+                }),
+            )
+        })?;
+
+    let events = tx_progress.wait_for_finalized_success().await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: format!("Resolve transaction failed: {}", e),
+                }),
+            )
+        })?;
+
+    Ok(Json(AuctionResponse {
+        tx_hash: format!("{:?}", events.extrinsic_hash())
+    }))
+}
+
+// Get auction info (query storage)
+pub async fn get_auction_info(
+    State(state): State<AppState>,
+    Path((collection_id, item_id)): Path<(u32, u32)>,
+) -> Result<Json<Option<AuctionInfo>>, (StatusCode, Json<ErrorResponse>)> {
+    let auction_storage = polkadot::storage().template().auctions(collection_id, item_id);
+    
+    let auction_info = state
+        .client
+        .storage()
+        .at_latest()
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: format!("Failed to query storage: {}", e),
+                }),
+            )
+        })?
+        .fetch(&auction_storage)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: format!("Failed to fetch auction info: {}", e),
+                }),
+            )
+        })?;
+
+    let result = auction_info.map(|info| AuctionInfo {
+        owner: info.owner.to_string(),
+        start_block: info.start_block as u64,
+        highest_bid: info.highest_bid,
+        highest_bidder: info.highest_bidder.map(|h| h.to_string()),
+        ended: info.ended,
+    });
+
+    Ok(Json(result))
+}
+
+// Admin functions (require root/sudo)
+pub async fn set_fee_percentage(
+    State(state): State<AppState>,
+    Path(fee): Path<u8>,
+) -> Result<Json<AuctionResponse>, (StatusCode, Json<ErrorResponse>)> {
+    if fee > 100 {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "Fee percentage cannot exceed 100%".to_string(),
+            }),
+        ));
+    }
+
+    let set_fee_tx = polkadot::tx().template().set_fee_percentage(fee);
+
+    let tx_progress = state
+        .client
+        .tx()
+        .sign_and_submit_then_watch_default(&set_fee_tx, &state.wallet_keypair)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: format!("Failed to set fee: {}", e),
+                }),
+            )
+        })?;
+
+    let events = tx_progress.wait_for_finalized_success().await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: format!("Set fee transaction failed: {}", e),
+                }),
+            )
+        })?;
+
+    Ok(Json(AuctionResponse {
+        tx_hash: format!("{:?}", events.extrinsic_hash())
+    }))
+}
+
+pub async fn withdraw_fees(
+    State(state): State<AppState>,
+    Path(to): Path<String>,
+) -> Result<Json<AuctionResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let to_account = AccountId32::from_str(&to)
+        .map_err(|_| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: "Invalid account address".to_string(),
+                }),
+            )
+        })?;
+
+    let withdraw_tx = polkadot::tx().template().withdraw_fees(to_account);
+
+    let tx_progress = state
+        .client
+        .tx()
+        .sign_and_submit_then_watch_default(&withdraw_tx, &state.wallet_keypair)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: format!("Failed to withdraw fees: {}", e),
+                }),
+            )
+        })?;
+
+    let events = tx_progress.wait_for_finalized_success().await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: format!("Withdraw transaction failed: {}", e),
+                }),
+            )
+        })?;
+
+    Ok(Json(AuctionResponse {
+        tx_hash: format!("{:?}", events.extrinsic_hash())
+    }))
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize tracing
@@ -536,6 +850,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/remark", post(create_remark))
         .route("/api/balance/{account}", get(get_balance))
         .route("/api/block/latest", get(get_latest_block))
+        .route("/api/auction/list", post(list_nft_for_auction))
+        .route("/api/auction/bid", post(place_bid))
+        .route("/api/auction/resolve/{collection_id}/{item_id}", post(resolve_auction))
+        .route("/api/auction/info/{collection_id}/{item_id}", get(get_auction_info))
+        .route("/api/auction/set-fee/{fee}", post(set_fee_percentage))
+        .route("/api/auction/withdraw-fees/{to}", post(withdraw_fees))
         .layer(CorsLayer::permissive())
         .with_state(app_state);
 
