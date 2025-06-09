@@ -7,6 +7,7 @@ use axum::{
 };
 use rand::TryRngCore;
 use serde::{Deserialize, Serialize};
+use sp_core::Decode;
 use sp_keyring::sr25519::Keyring as AccountKeyring;
 use std::path::Path as stdPath;
 use std::str::FromStr;
@@ -69,7 +70,7 @@ pub struct PlaceBidRequest {
 
 #[derive(Serialize, Deserialize)]
 pub struct AuctionResponse {
-    pub tx_hash: String
+    pub tx_hash: String,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -101,7 +102,7 @@ pub struct BalanceResponse {
     pub reserved_balance: u128,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 pub struct ErrorResponse {
     pub error: String,
 }
@@ -109,6 +110,18 @@ pub struct ErrorResponse {
 #[derive(Deserialize)]
 pub struct QueryParams {
     pub wait_for_finalization: Option<bool>,
+}
+
+#[derive(Serialize)]
+pub struct AllAuctionsResponse {
+    pub auctions: Vec<AuctionWithKey>,
+}
+
+#[derive(Serialize)]
+pub struct AuctionWithKey {
+    pub collection_id: u32,
+    pub item_id: u32,
+    pub auction_info: AuctionInfo,
 }
 
 impl AppState {
@@ -153,34 +166,46 @@ async fn create_and_save_wallet(
     println!("📍 Address: {}", wallet_data.address);
 
     // Auto-fund the wallet from Alice (for development)
-    let alice_keypair = get_keypair_from_keyring("alice")
-        .map_err(|e| format!("Alice keyring not available: {}. Make sure you're running on a dev chain.", e))?;
-    
+    let alice_keypair = get_keypair_from_keyring("alice").map_err(|e| {
+        format!(
+            "Alice keyring not available: {}. Make sure you're running on a dev chain.",
+            e
+        )
+    })?;
+
     println!("🔑 Alice keypair loaded successfully");
-    
+
     // Use a reasonable funding amount (100 units = 100 * 1_000_000_000)
     let funding_amount = 100 * MILLI_UNIT; // 100_000_000_000
     let wallet_address = keypair.public_key().to_account_id();
-    
+
     let transfer_tx = polkadot::tx()
         .balances()
         .transfer_allow_death(wallet_address.into(), funding_amount);
-    
-    println!("📤 Submitting funding transaction of {} MILLI_UNITS...", funding_amount / MILLI_UNIT);
-    
+
+    println!(
+        "📤 Submitting funding transaction of {} MILLI_UNITS...",
+        funding_amount / MILLI_UNIT
+    );
+
     let tx_progress = client
         .tx()
         .sign_and_submit_then_watch_default(&transfer_tx, &alice_keypair)
         .await
         .map_err(|e| format!("Failed to submit funding transaction: {}", e))?;
-    
+
     println!("⏳ Waiting for transaction finalization...");
-    
-    let _events = tx_progress.wait_for_finalized_success().await
+
+    let _events = tx_progress
+        .wait_for_finalized_success()
+        .await
         .map_err(|e| format!("Funding transaction failed: {}", e))?;
-    
-    println!("✅ Wallet auto-funded with {} MILLI_UNITS", funding_amount / MILLI_UNIT);
-    
+
+    println!(
+        "✅ Wallet auto-funded with {} MILLI_UNITS",
+        funding_amount / MILLI_UNIT
+    );
+
     Ok(keypair)
 }
 
@@ -250,7 +275,7 @@ async fn check_balance(
         .await?
         .fetch(&polkadot::storage().system().account(account_id))
         .await?;
-    
+
     match account_info {
         Some(info) => Ok(info.data.free),
         None => Ok(0), // Account doesn't exist = 0 balance
@@ -292,7 +317,7 @@ async fn transfer_tokens(
     match balance {
         Ok(amount) => {
             println!("Current balance: {}", amount);
-    
+
             if amount == 0 {
                 return Err((
                     StatusCode::BAD_REQUEST,
@@ -305,7 +330,7 @@ async fn transfer_tokens(
         Err(e) => {
             return Err(e);
         }
-    }    
+    }
 
     let transfer_tx = polkadot::tx()
         .balances()
@@ -583,10 +608,9 @@ pub async fn list_nft_for_auction(
     }
 
     // Create the transaction
-    let list_tx = polkadot::tx().template().list_nft_for_auction(
-        payload.collection_id,
-        payload.item_id,
-    );
+    let list_tx = polkadot::tx()
+        .template()
+        .list_nft_for_auction(payload.collection_id, payload.item_id);
 
     // Submit transaction
     let tx_progress = state
@@ -603,7 +627,9 @@ pub async fn list_nft_for_auction(
             )
         })?;
 
-    let events = tx_progress.wait_for_finalized_success().await
+    let events = tx_progress
+        .wait_for_finalized_success()
+        .await
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -614,7 +640,7 @@ pub async fn list_nft_for_auction(
         })?;
 
     Ok(Json(AuctionResponse {
-        tx_hash: format!("{:?}", events.extrinsic_hash())
+        tx_hash: format!("{:?}", events.extrinsic_hash()),
     }))
 }
 
@@ -623,8 +649,14 @@ pub async fn place_bid(
     State(state): State<AppState>,
     Json(payload): Json<PlaceBidRequest>,
 ) -> Result<Json<AuctionResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let keypair = get_keypair_from_keyring(&"alice")
-        .map_err(|e| (StatusCode::BAD_REQUEST, Json(ErrorResponse { error: e.to_string() })))?;
+    let keypair = get_keypair_from_keyring(&"alice").map_err(|e| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        )
+    })?;
 
     let bid_tx = polkadot::tx().template().place_bid(
         payload.collection_id,
@@ -646,7 +678,9 @@ pub async fn place_bid(
             )
         })?;
 
-    let events = tx_progress.wait_for_finalized_success().await
+    let events = tx_progress
+        .wait_for_finalized_success()
+        .await
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -657,7 +691,7 @@ pub async fn place_bid(
         })?;
 
     Ok(Json(AuctionResponse {
-        tx_hash: format!("{:?}", events.extrinsic_hash())
+        tx_hash: format!("{:?}", events.extrinsic_hash()),
     }))
 }
 
@@ -666,10 +700,9 @@ pub async fn resolve_auction(
     State(state): State<AppState>,
     Path((collection_id, item_id)): Path<(u32, u32)>,
 ) -> Result<Json<AuctionResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let resolve_tx = polkadot::tx().template().resolve_auction(
-        collection_id,
-        item_id,
-    );
+    let resolve_tx = polkadot::tx()
+        .template()
+        .resolve_auction(collection_id, item_id);
 
     let tx_progress = state
         .client
@@ -685,7 +718,9 @@ pub async fn resolve_auction(
             )
         })?;
 
-    let events = tx_progress.wait_for_finalized_success().await
+    let events = tx_progress
+        .wait_for_finalized_success()
+        .await
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -696,7 +731,7 @@ pub async fn resolve_auction(
         })?;
 
     Ok(Json(AuctionResponse {
-        tx_hash: format!("{:?}", events.extrinsic_hash())
+        tx_hash: format!("{:?}", events.extrinsic_hash()),
     }))
 }
 
@@ -705,14 +740,17 @@ pub async fn get_auction_info(
     State(state): State<AppState>,
     Path((collection_id, item_id)): Path<(u32, u32)>,
 ) -> Result<Json<Option<AuctionInfo>>, (StatusCode, Json<ErrorResponse>)> {
-    let auction_storage = polkadot::storage().template().auctions(collection_id, item_id);
-    
-    let auction_info = state
+    let storage_query = polkadot::storage().template().auctions_iter();
+
+    let mut auctions = Vec::new();
+
+    let mut iter = state
         .client
         .storage()
         .at_latest()
         .await
         .map_err(|e| {
+            println!("[ERROR] Failed to get latest block: {:?}", e);
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ErrorResponse {
@@ -720,26 +758,96 @@ pub async fn get_auction_info(
                 }),
             )
         })?
-        .fetch(&auction_storage)
+        .iter(storage_query)
         .await
         .map_err(|e| {
+            println!("[ERROR] Failed to create storage iterator: {:?}", e);
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ErrorResponse {
-                    error: format!("Failed to fetch auction info: {}", e),
+                    error: format!("Failed to iterate storage: {}", e),
                 }),
             )
         })?;
 
-    let result = auction_info.map(|info| AuctionInfo {
-        owner: info.owner.to_string(),
-        start_block: info.start_block as u64,
-        highest_bid: info.highest_bid,
-        highest_bidder: info.highest_bidder.map(|h| h.to_string()),
-        ended: info.ended,
-    });
+    let mut count = 0;
+    while let Some(result) = iter.next().await {
+        match result {
+            Ok(kv_pair) => {
+                count += 1;
+                let key_bytes = kv_pair.key_bytes;
+                let auction_info = kv_pair.value;
 
-    Ok(Json(result))
+                println!("[INFO] Processing auction #{}", count);
+                println!("[DEBUG] Raw key: 0x{}", hex::encode(key_bytes.clone()));
+
+                match decode_auction_key(&key_bytes) {
+                    Ok((collection_id, item_id)) => {
+                        let auction_with_key = AuctionWithKey {
+                            collection_id,
+                            item_id,
+                            auction_info: AuctionInfo {
+                                owner: auction_info.owner.to_string(),
+                                start_block: auction_info.start_block as u64,
+                                highest_bid: auction_info.highest_bid,
+                                highest_bidder: auction_info.highest_bidder.map(|h| h.to_string()),
+                                ended: auction_info.ended,
+                            },
+                        };
+
+                        println!(
+                                "[SUCCESS] ✅ Auction {} - Collection: {}, Item: {}, Owner: {}, Highest Bid: {}",
+                                count, collection_id, item_id, auction_with_key.auction_info.owner, auction_with_key.auction_info.highest_bid
+                            );
+
+                        auctions.push(auction_with_key);
+                    }
+                    Err(e) => {
+                        println!(
+                            "[ERROR] ❌ Failed to decode key for auction #{}: {}",
+                            count, e
+                        );
+                        println!("[DEBUG] Key bytes: {:?}", key_bytes);
+                    }
+                }
+            }
+            Err(e) => {
+                println!("[ERROR] Error iterating auction: {:?}", e);
+            }
+        }
+    }
+
+    println!("[INFO] Total auctions found: {}", auctions.len());
+
+    let result = auctions
+        .into_iter()
+        .find(|a| a.collection_id == collection_id && a.item_id == item_id);
+
+    Ok(Json(result.map(|a| a.auction_info)))
+}
+
+fn decode_auction_key(key: &[u8]) -> Result<(u32, u32), &'static str> {
+    // Blake2_128Concat hasher structure:
+    // [16 bytes hash] + [original encoded data]
+
+    if key.len() < 16 {
+        return Err("Key too short for Blake2_128Concat");
+    }
+
+    // Skip 32-byte storage prefix + 16-byte Blake2_128 hash
+    let encoded_key = &key[32 + 16..];
+
+    // The original key is a tuple (CollectionId, ItemId) encoded with SCALE codec
+    // Assuming CollectionId and ItemId are both u32
+    if encoded_key.len() < 8 {
+        return Err("Insufficient data for (u32, u32) tuple");
+    }
+
+    // Decode the tuple (CollectionId, ItemId)
+    match <(u32, u32)>::decode(&mut &encoded_key[..]) {
+        Ok((collection_id, item_id)) => Ok((collection_id, item_id)),
+        Err(_) => Err("Failed to decode (CollectionId, ItemId) tuple"),
+    }
 }
 
 // Admin functions (require root/sudo)
@@ -772,7 +880,9 @@ pub async fn set_fee_percentage(
             )
         })?;
 
-    let events = tx_progress.wait_for_finalized_success().await
+    let events = tx_progress
+        .wait_for_finalized_success()
+        .await
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -783,7 +893,7 @@ pub async fn set_fee_percentage(
         })?;
 
     Ok(Json(AuctionResponse {
-        tx_hash: format!("{:?}", events.extrinsic_hash())
+        tx_hash: format!("{:?}", events.extrinsic_hash()),
     }))
 }
 
@@ -791,22 +901,30 @@ pub async fn withdraw_fees(
     State(state): State<AppState>,
     Path(to): Path<String>,
 ) -> Result<Json<AuctionResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let to_account = AccountId32::from_str(&to)
-        .map_err(|_| {
-            (
-                StatusCode::BAD_REQUEST,
-                Json(ErrorResponse {
-                    error: "Invalid account address".to_string(),
-                }),
-            )
-        })?;
+    let keypair = get_keypair_from_keyring(&"alice").map_err(|e| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        )
+    })?;
+
+    let to_account = AccountId32::from_str(&to).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "Invalid account address".to_string(),
+            }),
+        )
+    })?;
 
     let withdraw_tx = polkadot::tx().template().withdraw_fees(to_account);
 
     let tx_progress = state
         .client
         .tx()
-        .sign_and_submit_then_watch_default(&withdraw_tx, &state.wallet_keypair)
+        .sign_and_submit_then_watch_default(&withdraw_tx, &keypair)
         .await
         .map_err(|e| {
             (
@@ -817,7 +935,9 @@ pub async fn withdraw_fees(
             )
         })?;
 
-    let events = tx_progress.wait_for_finalized_success().await
+    let events = tx_progress
+        .wait_for_finalized_success()
+        .await
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -828,7 +948,7 @@ pub async fn withdraw_fees(
         })?;
 
     Ok(Json(AuctionResponse {
-        tx_hash: format!("{:?}", events.extrinsic_hash())
+        tx_hash: format!("{:?}", events.extrinsic_hash()),
     }))
 }
 
@@ -852,8 +972,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/block/latest", get(get_latest_block))
         .route("/api/auction/list", post(list_nft_for_auction))
         .route("/api/auction/bid", post(place_bid))
-        .route("/api/auction/resolve/{collection_id}/{item_id}", post(resolve_auction))
-        .route("/api/auction/info/{collection_id}/{item_id}", get(get_auction_info))
+        .route(
+            "/api/auction/resolve/{collection_id}/{item_id}",
+            post(resolve_auction),
+        )
+        .route(
+            "/api/auction/info/{collection_id}/{item_id}",
+            get(get_auction_info),
+        )
+        // .route(path("/api/auction/{collection_id}/{item_id}"), get(get_all_auctions(state.clone())))
         .route("/api/auction/set-fee/{fee}", post(set_fee_percentage))
         .route("/api/auction/withdraw-fees/{to}", post(withdraw_fees))
         .layer(CorsLayer::permissive())
