@@ -133,6 +133,10 @@ pub type Hash = sp_core::H256;
 /// An index to a block.
 pub type BlockNumber = u32;
 
+// Make sure these types are exported from your runtime
+pub type CollectionId = <Runtime as pallet_uniques::Config>::CollectionId;
+pub type ItemId = <Runtime as pallet_uniques::Config>::ItemId;
+
 /// The address format for describing accounts.
 pub type Address = MultiAddress<AccountId, ()>;
 

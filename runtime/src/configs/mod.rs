@@ -281,6 +281,9 @@ impl pallet_template::Config for Runtime {
     type WeightInfo = pallet_template::weights::SubstrateWeight<Runtime>;    
 }
 
+
+
+
 pub type SignedExtra = (
 	frame_system::CheckNonZeroSender<Runtime>,
 	frame_system::CheckSpecVersion<Runtime>,

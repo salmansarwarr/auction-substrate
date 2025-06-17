@@ -1,0 +1,23 @@
+[package]
+name = "pallet-template-runtime-api"
+version = "1.0.0"
+edition = "2021"
+
+[dependencies]
+codec.workspace = true
+sp-api.workspace = true
+sp-std.workspace = true
+sp-runtime.workspace = true
+serde = { version = "1.0", features = ["derive"], optional = true, default-features = false }
+scale-info = { features = ["derive"], workspace = true }
+
+[features]
+default = ["std"]
+std = [
+    "codec/std",
+    "sp-api/std",
+    "sp-std/std",
+    "sp-runtime/std",
+    "serde",
+    "scale-info/std"
+]

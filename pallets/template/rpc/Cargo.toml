@@ -1,0 +1,13 @@
+[package]
+name = "pallet-template-rpc"
+version = "1.0.0"
+edition = "2021"
+
+[dependencies]
+jsonrpsee.workspace = true
+codec.workspace = true
+sp-api.workspace = true
+sp-blockchain.workspace = true
+sp-runtime.workspace = true
+sp-rpc.workspace = true
+pallet-template-runtime-api = { path = "../runtime-api" }

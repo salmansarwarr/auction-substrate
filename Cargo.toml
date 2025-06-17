@@ -9,6 +9,8 @@ edition = "2021"
 members = [
     "node",
     "pallets/template",
+    "pallets/template/rpc",
+    "pallets/template/runtime-api",
     "runtime", "rust-api",
 ]
 resolver = "2"
@@ -22,7 +24,7 @@ frame-benchmarking-cli = { version = "47.0.0", default-features = false }
 frame-metadata-hash-extension = { version = "0.8.0", default-features = false }
 frame-system = { version = "40.1.0", default-features = false }
 futures = { version = "0.3.31" }
-jsonrpsee = { version = "0.24.3" }
+jsonrpsee = { version = "0.24.3", features = ["macros", "client", "server"], default-features = false }
 pallet-transaction-payment = { version = "40.0.0", default-features = false }
 pallet-transaction-payment-rpc = { version = "43.0.0", default-features = false }
 sc-basic-authorship = { version = "0.49.0", default-features = false }
@@ -81,3 +83,6 @@ sp-std = { version = "14.0.0", default-features = false }
 pallet-uniques = { version = "40.1.0", default-features = false, features = ["runtime-benchmarks"] }
 pallet-migrations = { version = "10.1.0", default-features = false }
 funty = {version = "2.0.0", default-features = false }
+sp-rpc = {version = "34.0.0", default-features = false }
+pallet-template-runtime-api = { path = "pallets/template/runtime-api", default-features = false }
+pallet-template-rpc = { path = "pallets/template/rpc" }
