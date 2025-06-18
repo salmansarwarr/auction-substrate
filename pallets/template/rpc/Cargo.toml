@@ -10,4 +10,6 @@ sp-api.workspace = true
 sp-blockchain.workspace = true
 sp-runtime.workspace = true
 sp-rpc.workspace = true
+hex.workspace = true
 pallet-template-runtime-api = { path = "../runtime-api" }
+solochain-template-runtime = { path = "../../../runtime" } 

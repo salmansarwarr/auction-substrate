@@ -24,6 +24,7 @@ use sp_version::RuntimeVersion;
 pub use frame_system::Call as SystemCall;
 pub use pallet_balances::Call as BalancesCall;
 pub use pallet_timestamp::Call as TimestampCall;
+pub use pallet_template::Call as TemplateCall;
 #[cfg(any(feature = "std", test))]
 pub use sp_runtime::BuildStorage;
 

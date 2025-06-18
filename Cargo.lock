@@ -6402,9 +6402,11 @@ dependencies = [
 name = "pallet-template-rpc"
 version = "1.0.0"
 dependencies = [
+ "hex",
  "jsonrpsee",
  "pallet-template-runtime-api",
  "parity-scale-codec",
+ "solochain-template-runtime",
  "sp-api",
  "sp-blockchain",
  "sp-rpc",

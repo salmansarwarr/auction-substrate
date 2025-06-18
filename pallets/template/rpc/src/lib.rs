@@ -1,20 +1,26 @@
-use jsonrpsee::{
-    core::{RpcResult},
-    proc_macros::rpc,
-    types::ErrorObjectOwned
-};  
+use codec::Codec;
+use jsonrpsee::{core::RpcResult, proc_macros::rpc, types::ErrorObjectOwned};
 use sp_api::ProvideRuntimeApi;
 use sp_blockchain::HeaderBackend;
-use sp_runtime::{generic::BlockId, traits::{Block as BlockT, Hash}};
-use std::sync::Arc;
-use codec::Codec;
 use sp_rpc::number::NumberOrHex;
+use sp_runtime::{
+    generic::BlockId,
+    traits::{Block as BlockT, Hash}, AccountId32,
+};
+use std::sync::Arc;
+use codec::Encode;
 
-pub use pallet_template_runtime_api::AuctionInfo;
 pub use pallet_template_runtime_api::AuctionApi as AuctionRuntimeApi;
+pub use pallet_template_runtime_api::AuctionInfo;
+
+use solochain_template_runtime::{RuntimeCall, TemplateCall, Template};
 
 fn to_rpc_error<E: std::fmt::Display>(e: E) -> ErrorObjectOwned {
-    ErrorObjectOwned::owned(1, format!("Unable to query auction info: {}", e), None::<()>)
+    ErrorObjectOwned::owned(
+        1,
+        format!("Unable to query auction info: {}", e),
+        None::<()>,
+    )
 }
 
 #[rpc(client, server)]
@@ -59,7 +65,43 @@ pub trait AuctionApi<BlockHash, CollectionId, ItemId, AccountId, Balance, BlockN
     fn get_active_auctions(
         &self,
         at: Option<BlockHash>,
-    ) -> RpcResult<Vec<((CollectionId, ItemId), AuctionInfo<AccountId, Balance, BlockNumber>)>>;
+    ) -> RpcResult<
+        Vec<(
+            (CollectionId, ItemId),
+            AuctionInfo<AccountId, Balance, BlockNumber>,
+        )>,
+    >;
+
+    #[method(name = "auction_listNftForAuction")]
+    fn list_nft_for_auction(
+        &self,
+        collection_id: u32,
+        item_id: u32,
+        at: Option<BlockHash>,
+    ) -> RpcResult<String>;
+
+    #[method(name = "auction_placeBid")]
+    fn place_bid(
+        &self,
+        collection_id: u32,
+        item_id: u32,
+        bid_amount: u128,
+        at: Option<BlockHash>,
+    ) -> RpcResult<String>;
+
+    #[method(name = "auction_resolveAuction")]
+    fn resolve_auction(
+        &self,
+        collection_id: u32,
+        item_id: u32,
+        at: Option<BlockHash>,
+    ) -> RpcResult<String>;
+
+    #[method(name = "auction_setFeePercentage")]
+    fn set_fee_percentage(&self, fee: u8, at: Option<BlockHash>) -> RpcResult<String>;
+
+    #[method(name = "auction_withdrawFees")]
+    fn withdraw_fees(&self, to: AccountId32, at: Option<BlockHash>) -> RpcResult<String>;
 }
 
 /// A struct that implements the `AuctionApi`.
@@ -81,14 +123,8 @@ impl<C, M> AuctionRpc<C, M> {
 }
 
 impl<C, Block, BlockHash, CollectionId, ItemId, AccountId, Balance, BlockNumber>
-    AuctionApiServer<
-        BlockHash,
-        CollectionId,
-        ItemId,
-        AccountId,
-        Balance,
-        BlockNumber,
-    > for AuctionRpc<C, Block>
+    AuctionApiServer<BlockHash, CollectionId, ItemId, AccountId, Balance, BlockNumber>
+    for AuctionRpc<C, Block>
 where
     Block: BlockT<Hash = BlockHash>,
     AccountId: Clone + std::fmt::Display + Codec,
@@ -112,7 +148,8 @@ where
         let at_hash = at.unwrap_or_else(|| self.client.info().best_hash);
 
         let runtime_api_result = api.get_auction_info(at_hash, collection_id, item_id);
-        runtime_api_result.map_err(to_rpc_error)
+        runtime_api_result
+            .map_err(to_rpc_error)
             .map(|info| info.map(|i| i.into()))
     }
 
@@ -128,7 +165,11 @@ where
 
         let runtime_api_result = api.get_bids(at_hash, collection_id, item_id);
         runtime_api_result.map_err(|e| {
-            ErrorObjectOwned::owned(1, format!("Unable to query auction bids: {}", e), None::<()>)
+            ErrorObjectOwned::owned(
+                1,
+                format!("Unable to query auction bids: {}", e),
+                None::<()>,
+            )
         })
     }
 
@@ -144,7 +185,11 @@ where
 
         let runtime_api_result = api.is_in_auction(at_hash, collection_id, item_id);
         runtime_api_result.map_err(|e| {
-            ErrorObjectOwned::owned(1, format!("Unable to query auction bids: {}", e), None::<()>)
+            ErrorObjectOwned::owned(
+                1,
+                format!("Unable to query auction bids: {}", e),
+                None::<()>,
+            )
         })
     }
 
@@ -155,7 +200,11 @@ where
 
         let runtime_api_result = api.get_fee_percentage(at_hash);
         runtime_api_result.map_err(|e| {
-            ErrorObjectOwned::owned(1, format!("Unable to query auction bids: {}", e), None::<()>)
+            ErrorObjectOwned::owned(
+                1,
+                format!("Unable to query auction bids: {}", e),
+                None::<()>,
+            )
         })
     }
 
@@ -168,21 +217,107 @@ where
         runtime_api_result
             .map(|balance| balance.into())
             .map_err(|e| {
-                ErrorObjectOwned::owned(1, format!("Unable to query auction bids: {}", e), None::<()>)
+                ErrorObjectOwned::owned(
+                    1,
+                    format!("Unable to query auction bids: {}", e),
+                    None::<()>,
+                )
             })
     }
 
     fn get_active_auctions(
         &self,
         at: Option<BlockHash>,
-    ) -> RpcResult<Vec<((CollectionId, ItemId), AuctionInfo<AccountId, Balance, BlockNumber>)>> {
+    ) -> RpcResult<
+        Vec<(
+            (CollectionId, ItemId),
+            AuctionInfo<AccountId, Balance, BlockNumber>,
+        )>,
+    > {
         let api = self.client.runtime_api();
         // let at = BlockId::hash(at.unwrap_or_else(|| self.client.info().best_hash));
         let at_hash = at.unwrap_or_else(|| self.client.info().best_hash);
 
         let runtime_api_result = api.get_active_auctions(at_hash);
         runtime_api_result.map_err(|e| {
-            ErrorObjectOwned::owned(1, format!("Unable to query auction bids: {}", e), None::<()>)
+            ErrorObjectOwned::owned(
+                1,
+                format!("Unable to query auction bids: {}", e),
+                None::<()>,
+            )
         })
+    }
+
+    fn list_nft_for_auction(
+        &self,
+        collection_id: u32,
+        item_id: u32,
+        at: Option<BlockHash>,
+    ) -> RpcResult<String> {
+        // Create the call
+        let call = RuntimeCall::Template(TemplateCall::list_nft_for_auction {
+            collection_id,
+            item_id,
+        });
+
+        // Encode the call
+        let encoded = call.encode();
+        
+        // Return hex-encoded call data that can be used to construct a transaction
+        Ok(format!("0x{}", hex::encode(encoded)))
+    }
+
+    fn place_bid(
+        &self,
+        collection_id: u32,
+        item_id: u32,
+        bid_amount: u128,
+        at: Option<BlockHash>,
+    ) -> RpcResult<String> {
+        let call = RuntimeCall::Template(TemplateCall::place_bid {
+            collection_id,
+            item_id,
+            bid_amount,
+        });
+
+        let encoded = call.encode();
+        Ok(format!("0x{}", hex::encode(encoded)))
+    }
+
+    fn resolve_auction(
+        &self,
+        collection_id: u32,
+        item_id: u32,
+        at: Option<BlockHash>,
+    ) -> RpcResult<String> {
+        let call = RuntimeCall::Template(TemplateCall::resolve_auction {
+            collection_id,
+            item_id,
+        });
+
+        let encoded = call.encode();
+        Ok(format!("0x{}", hex::encode(encoded)))
+    }
+
+    fn set_fee_percentage(
+        &self,
+        fee: u8,
+        at: Option<BlockHash>,
+    ) -> RpcResult<String> {
+        let call = RuntimeCall::Template(TemplateCall::set_fee_percentage { fee });
+
+        let encoded = call.encode();
+        Ok(format!("0x{}", hex::encode(encoded)))
+    }
+
+    fn withdraw_fees(
+        &self,
+        to: AccountId32,
+        at: Option<BlockHash>,
+    ) -> RpcResult<String> {
+        let call = RuntimeCall::Template(TemplateCall::withdraw_fees { to });
+
+        let encoded = call.encode();
+        Ok(format!("0x{}", hex::encode(encoded)))
     }
 }
