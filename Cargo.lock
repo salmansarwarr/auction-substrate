@@ -6391,6 +6391,7 @@ dependencies = [
  "pallet-balances",
  "pallet-uniques",
  "parity-scale-codec",
+ "primitives",
  "scale-info",
  "sp-core",
  "sp-io",
@@ -6417,7 +6418,9 @@ dependencies = [
 name = "pallet-template-runtime-api"
 version = "1.0.0"
 dependencies = [
+ "frame-support",
  "parity-scale-codec",
+ "primitives",
  "scale-info",
  "serde",
  "sp-api",
@@ -7243,6 +7246,17 @@ dependencies = [
  "impl-serde",
  "scale-info",
  "uint 0.10.0",
+]
+
+[[package]]
+name = "primitives"
+version = "0.1.0"
+dependencies = [
+ "frame-support",
+ "parity-scale-codec",
+ "scale-info",
+ "serde",
+ "sp-runtime",
 ]
 
 [[package]]

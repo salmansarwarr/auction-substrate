@@ -279,6 +279,8 @@ impl pallet_template::Config for Runtime {
     type PalletId = TemplatePalletId;
 
     type WeightInfo = pallet_template::weights::SubstrateWeight<Runtime>;    
+
+    type MaxBatchListingSize = ConstU32<10>;
 }
 
 

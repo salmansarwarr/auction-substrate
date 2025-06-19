@@ -1,19 +1,21 @@
 use codec::Codec;
+use codec::Encode;
 use jsonrpsee::{core::RpcResult, proc_macros::rpc, types::ErrorObjectOwned};
 use sp_api::ProvideRuntimeApi;
 use sp_blockchain::HeaderBackend;
 use sp_rpc::number::NumberOrHex;
+use sp_runtime::BoundedVec;
+use sp_runtime::traits::ConstU32;
 use sp_runtime::{
-    generic::BlockId,
-    traits::{Block as BlockT, Hash}, AccountId32,
+    traits::{Block as BlockT},
+    AccountId32,
 };
 use std::sync::Arc;
-use codec::Encode;
 
 pub use pallet_template_runtime_api::AuctionApi as AuctionRuntimeApi;
-pub use pallet_template_runtime_api::AuctionInfo;
+pub use pallet_template_runtime_api::{AuctionInfo, BatchListingInfo};
 
-use solochain_template_runtime::{RuntimeCall, TemplateCall, Template};
+use solochain_template_runtime::{RuntimeCall, TemplateCall};
 
 fn to_rpc_error<E: std::fmt::Display>(e: E) -> ErrorObjectOwned {
     ErrorObjectOwned::owned(
@@ -102,6 +104,14 @@ pub trait AuctionApi<BlockHash, CollectionId, ItemId, AccountId, Balance, BlockN
 
     #[method(name = "auction_withdrawFees")]
     fn withdraw_fees(&self, to: AccountId32, at: Option<BlockHash>) -> RpcResult<String>;
+
+    /// List a batch of NFTs for auction
+    #[method(name = "auction_listBatchNftsForAuction")]
+    fn list_batch_nfts_for_auction(
+        &self,
+        batch: BatchListingInfo<CollectionId, ItemId, Balance, BlockNumber>,
+        at: Option<BlockHash>,
+    ) -> RpcResult<String>;
 }
 
 /// A struct that implements the `AuctionApi`.
@@ -128,10 +138,10 @@ impl<C, Block, BlockHash, CollectionId, ItemId, AccountId, Balance, BlockNumber>
 where
     Block: BlockT<Hash = BlockHash>,
     AccountId: Clone + std::fmt::Display + Codec,
-    Balance: Clone + std::fmt::Display + Codec + Into<NumberOrHex>,
-    BlockNumber: Clone + std::fmt::Display + Codec,
-    CollectionId: Clone + std::fmt::Display + Codec,
-    ItemId: Clone + std::fmt::Display + Codec,
+    Balance: Clone + std::fmt::Display + Codec + Into<NumberOrHex> + Into<u128>,
+    BlockNumber: Clone + std::fmt::Display + Codec + Into<u32>,
+    CollectionId: Clone + std::fmt::Display + Codec + Into<u32>,
+    ItemId: Clone + std::fmt::Display + Codec + Into<u32>,
     C: Send + Sync + 'static,
     C: ProvideRuntimeApi<Block>,
     C: HeaderBackend<Block>,
@@ -262,7 +272,7 @@ where
 
         // Encode the call
         let encoded = call.encode();
-        
+
         // Return hex-encoded call data that can be used to construct a transaction
         Ok(format!("0x{}", hex::encode(encoded)))
     }
@@ -299,25 +309,45 @@ where
         Ok(format!("0x{}", hex::encode(encoded)))
     }
 
-    fn set_fee_percentage(
-        &self,
-        fee: u8,
-        at: Option<BlockHash>,
-    ) -> RpcResult<String> {
+    fn set_fee_percentage(&self, fee: u8, at: Option<BlockHash>) -> RpcResult<String> {
         let call = RuntimeCall::Template(TemplateCall::set_fee_percentage { fee });
 
         let encoded = call.encode();
         Ok(format!("0x{}", hex::encode(encoded)))
     }
 
-    fn withdraw_fees(
-        &self,
-        to: AccountId32,
-        at: Option<BlockHash>,
-    ) -> RpcResult<String> {
+    fn withdraw_fees(&self, to: AccountId32, at: Option<BlockHash>) -> RpcResult<String> {
         let call = RuntimeCall::Template(TemplateCall::withdraw_fees { to });
 
         let encoded = call.encode();
         Ok(format!("0x{}", hex::encode(encoded)))
     }
+
+    fn list_batch_nfts_for_auction(
+        &self,
+        batch_info: BatchListingInfo<CollectionId, ItemId, Balance, BlockNumber>,
+        at: Option<BlockHash>,
+    ) -> RpcResult<String> {
+        let converted = BatchListingInfo {
+            nfts: BoundedVec::try_from(
+                batch_info.nfts
+                    .into_iter()
+                    .map(|(cid, iid)| (cid.into(), iid.into()))
+                    .collect::<Vec<_>>()
+            ).map_err(|_| {
+                ErrorObjectOwned::owned(
+                    1,
+                    "Too many NFTs in batch listing (exceeds limit)".to_string(),
+                    None::<()>,
+                )
+            })?,
+            min_bid: batch_info.min_bid.map(|b| b.into()),
+            custom_timeout: batch_info.custom_timeout.map(|bn| bn.into()),
+        };
+
+        let call = RuntimeCall::Template(TemplateCall::batch_list_nfts_for_auction { batch_info: converted });
+    
+        let encoded = call.encode();
+        Ok(format!("0x{}", hex::encode(encoded)))
+    }    
 }

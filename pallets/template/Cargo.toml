@@ -24,6 +24,7 @@ pallet-balances.workspace = true
 pallet-uniques.workspace = true
 funty.workspace = true
 log.workspace = true
+primitives = { path = "primitives", default-features = false }
 
 [dev-dependencies]
 sp-core = { default-features = true, workspace = true }
@@ -42,7 +43,8 @@ std = [
 	"pallet-balances/std",
 	"pallet-uniques/std",
 	"funty/std",
-	"log/std"
+	"log/std",
+	"primitives/std"
 ]
 runtime-benchmarks = [
 	"frame-benchmarking/runtime-benchmarks",
