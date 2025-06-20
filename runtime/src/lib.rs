@@ -108,7 +108,7 @@ pub const MILLI_UNIT: Balance = 1_000_000_000;
 pub const MICRO_UNIT: Balance = 1_000_000;
 
 /// Existential deposit.
-pub const EXISTENTIAL_DEPOSIT: Balance = MILLI_UNIT;
+pub const EXISTENTIAL_DEPOSIT: Balance = 0;
 
 /// The version information used to identify this runtime when compiled natively.
 #[cfg(feature = "std")]

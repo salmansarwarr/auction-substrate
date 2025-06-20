@@ -33,13 +33,14 @@ use frame_support::{
 	},
 };
 use frame_system::{limits::{BlockLength, BlockWeights}, EnsureRoot, EnsureSigned};
-use pallet_transaction_payment::{ConstFeeMultiplier, CurrencyAdapter, FungibleAdapter, Multiplier};
+use pallet_transaction_payment::{ConstFeeMultiplier, CurrencyAdapter, Multiplier};
 use sp_consensus_aura::sr25519::AuthorityId as AuraId;
-use sp_runtime::{generic, traits::{One}, Perbill, SaturatedConversion };
+use sp_runtime::{generic, Perbill, SaturatedConversion };
 use sp_version::RuntimeVersion;
 use sp_core::sr25519::Signature;
 use frame_support::PalletId;
-use frame_support::traits::{Currency, OnUnbalanced, fungible::Credit, Imbalance};
+use frame_support::traits::{Currency, OnUnbalanced, Imbalance};
+use frame_support::weights::ConstantMultiplier;
 
 use codec::Encode;
 
@@ -172,10 +173,10 @@ impl OnUnbalanced<pallet_balances::NegativeImbalance<Runtime>> for FeeToWallet {
 
 impl pallet_transaction_payment::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
-	type OnChargeTransaction = CurrencyAdapter<Balances, FeeToWallet>;
+	type OnChargeTransaction = CurrencyAdapter<Balances, ()>;
 	type OperationalFeeMultiplier = ConstU8<5>;
-	type WeightToFee = IdentityFee<Balance>;
-	type LengthToFee = IdentityFee<Balance>;
+	type WeightToFee = ConstantMultiplier<Balance, ConstU128<0>>;
+	type LengthToFee =  ConstantMultiplier<Balance, ConstU128<0>>;
 	type FeeMultiplierUpdate = ConstFeeMultiplier<FeeMultiplier>;
 	type WeightInfo = pallet_transaction_payment::weights::SubstrateWeight<Runtime>;
 }
@@ -243,11 +244,11 @@ impl pallet_sudo::Config for Runtime {
 }
 
 parameter_types! {
-    pub const CollectionDeposit: u128 = 1_000 * MILLI_UNIT;
-    pub const ItemDeposit: u128 = 500 * MILLI_UNIT;
-    pub const MetadataDepositBase: u128 = 100 * MILLI_UNIT;
-    pub const AttributeDepositBase: u128 = 10 * MILLI_UNIT;
-    pub const DepositPerByte: u128 = 1 * MILLI_UNIT;
+    pub const CollectionDeposit: u128 = 0;
+    pub const ItemDeposit: u128 = 0;
+    pub const MetadataDepositBase: u128 = 0;
+    pub const AttributeDepositBase: u128 = 0;
+    pub const DepositPerByte: u128 = 0;
 
     pub const StringLimit: u32 = 128;
     pub const KeyLimit: u32 = 32;
