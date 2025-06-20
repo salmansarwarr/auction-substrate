@@ -33,12 +33,14 @@ use frame_support::{
 	},
 };
 use frame_system::{limits::{BlockLength, BlockWeights}, EnsureRoot, EnsureSigned};
-use pallet_transaction_payment::{ConstFeeMultiplier, FungibleAdapter, Multiplier};
+use pallet_transaction_payment::{ConstFeeMultiplier, CurrencyAdapter, FungibleAdapter, Multiplier};
 use sp_consensus_aura::sr25519::AuthorityId as AuraId;
 use sp_runtime::{generic, traits::{One}, Perbill, SaturatedConversion };
 use sp_version::RuntimeVersion;
 use sp_core::sr25519::Signature;
 use frame_support::PalletId;
+use frame_support::traits::{Currency, OnUnbalanced, fungible::Credit, Imbalance};
+
 use codec::Encode;
 
 use crate::UncheckedExtrinsic;
@@ -142,12 +144,35 @@ impl pallet_balances::Config for Runtime {
 }
 
 parameter_types! {
-	pub FeeMultiplier: Multiplier = Multiplier::one();
+	pub FeeMultiplier: Multiplier = Multiplier::from_rational(0u128, 1u128); 
+}
+
+// Define your target wallet
+parameter_types! {
+    pub FeeRecipient: AccountId = AccountId::from([
+        // Replace with your actual account bytes
+        1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
+        17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32
+    ]);
+}
+
+pub struct FeeToWallet;
+impl OnUnbalanced<pallet_balances::NegativeImbalance<Runtime>> for FeeToWallet {
+    fn on_nonzero_unbalanced(amount: pallet_balances::NegativeImbalance<Runtime>) {
+        let recipient = FeeRecipient::get();
+        let fee_value = amount.peek();
+        
+        // Simply drop the negative imbalance (this burns the tokens from the fee payer)
+        drop(amount);
+        
+        // Mint the same amount to the recipient
+        let _ = <Balances as Currency<AccountId>>::deposit_creating(&recipient, fee_value);
+    }
 }
 
 impl pallet_transaction_payment::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
-	type OnChargeTransaction = FungibleAdapter<Balances, ()>;
+	type OnChargeTransaction = CurrencyAdapter<Balances, FeeToWallet>;
 	type OperationalFeeMultiplier = ConstU8<5>;
 	type WeightToFee = IdentityFee<Balance>;
 	type LengthToFee = IdentityFee<Balance>;
