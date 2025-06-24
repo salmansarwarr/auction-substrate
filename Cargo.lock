@@ -6342,6 +6342,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-proxy"
+version = "40.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4f84c01677715acc9590b393623393f722c0df459b8dcd9465ae0ac46bb904d0"
+dependencies = [
+ "parity-scale-codec",
+ "polkadot-sdk-frame",
+ "scale-info",
+]
+
+[[package]]
 name = "pallet-session"
 version = "40.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7486,6 +7497,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "52c2c1bf36ddb1a1c396b3601a3cec27c2462e45f07c386894ec3ccf5332bd16"
 dependencies = [
  "prost 0.13.5",
+]
+
+[[package]]
+name = "proxy-wrapper"
+version = "0.1.0"
+dependencies = [
+ "frame-support",
+ "frame-system",
+ "pallet-balances",
+ "pallet-proxy",
+ "parity-scale-codec",
+ "scale-info",
 ]
 
 [[package]]
@@ -10257,6 +10280,7 @@ dependencies = [
  "pallet-example-offchain-worker",
  "pallet-grandpa",
  "pallet-migrations",
+ "pallet-proxy",
  "pallet-sudo",
  "pallet-template",
  "pallet-template-runtime-api",
@@ -10265,6 +10289,7 @@ dependencies = [
  "pallet-transaction-payment-rpc-runtime-api",
  "pallet-uniques",
  "parity-scale-codec",
+ "proxy-wrapper",
  "scale-info",
  "serde_json",
  "sp-api",

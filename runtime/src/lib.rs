@@ -243,4 +243,9 @@ mod runtime {
 	#[runtime::pallet_index(10)]
 	pub type OffchainWorker = pallet_example_offchain_worker;
 
+	#[runtime::pallet_index(11)]
+	pub type Proxy = pallet_proxy;
+
+	#[runtime::pallet_index(12)]
+	pub type ProxyWrapper = proxy_wrapper;
 }

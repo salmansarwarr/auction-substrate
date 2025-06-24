@@ -26,7 +26,7 @@
 // Substrate and Polkadot dependencies
 use frame_support::{
 	derive_impl, parameter_types,
-	traits::{AsEnsureOriginWithArg, ConstBool, ConstU128, ConstU32, ConstU64, ConstU8, VariantCountOf},
+	traits::{AsEnsureOriginWithArg, ConstBool, ConstU128, ConstU32, ConstU64, ConstU8, VariantCountOf, Everything, InstanceFilter},
 	weights::{
 		constants::{RocksDbWeight, WEIGHT_REF_TIME_PER_SECOND},
 		IdentityFee, Weight,
@@ -35,14 +35,14 @@ use frame_support::{
 use frame_system::{limits::{BlockLength, BlockWeights}, EnsureRoot, EnsureSigned};
 use pallet_transaction_payment::{ConstFeeMultiplier, CurrencyAdapter, Multiplier};
 use sp_consensus_aura::sr25519::AuthorityId as AuraId;
-use sp_runtime::{generic, Perbill, SaturatedConversion };
+use sp_runtime::{generic, Perbill, SaturatedConversion, RuntimeDebug, traits::BlakeTwo256 };
 use sp_version::RuntimeVersion;
 use sp_core::sr25519::Signature;
 use frame_support::PalletId;
 use frame_support::traits::{Currency, OnUnbalanced, Imbalance};
 use frame_support::weights::ConstantMultiplier;
 
-use codec::Encode;
+use codec::{Encode, Decode, MaxEncodedLen};
 
 use crate::UncheckedExtrinsic;
 
@@ -424,3 +424,109 @@ impl pallet_example_offchain_worker::Config for Runtime {
 	type MaxPrices = ConstU32<64>;
 }
 
+parameter_types! {
+    // Key size = 32, value size = 8
+    pub const ProxyDepositBase: Balance = 40 * (10u128.pow(12) / 1000);
+    // One storage item (32) plus `ProxyType` (1) encode len.
+    pub const ProxyDepositFactor: Balance = 33 * (10u128.pow(12) / 1000);
+    // Key size = 32, value size 8
+    pub const AnnouncementDepositBase: Balance =  40 * (10u128.pow(12) / 1000);
+    // AccountId, Hash and BlockNumber sum up to 68
+    pub const AnnouncementDepositFactor: Balance =  68 * (10u128.pow(12) / 1000);
+}
+#[derive(
+    Copy,
+    Clone,
+    Eq,
+    PartialEq,
+    Ord,
+    PartialOrd,
+    Encode,
+    Decode,
+    RuntimeDebug,
+    MaxEncodedLen,
+    scale_info::TypeInfo,
+)]
+pub enum ProxyType {
+    Any = 0,
+    NonTransfer = 1,
+    Staking = 2,
+    Nomination = 3,
+}
+
+impl Default for ProxyType {
+    fn default() -> Self {
+        Self::Any
+    }
+}
+
+impl codec::DecodeWithMemTracking for ProxyType {}
+
+impl InstanceFilter<RuntimeCall> for ProxyType {
+    fn filter(&self, c: &RuntimeCall) -> bool {
+        match self {
+            ProxyType::Any => true,
+            // ProxyType::NonTransfer => matches!(
+            //     c,
+            //     RuntimeCall::Staking(..)
+            //         | RuntimeCall::Session(..)
+            //         | RuntimeCall::Treasury(..)
+            //         | RuntimeCall::Utility(..)
+            //         | RuntimeCall::Multisig(..)
+            //         | RuntimeCall::NominationPools(..)
+            // ),
+            // ProxyType::Staking => {
+            //     matches!(
+            //         c,
+            //         RuntimeCall::Staking(..)
+            //             | RuntimeCall::Session(..)
+            //             | RuntimeCall::Utility(..)
+            //             | RuntimeCall::NominationPools(..)
+            //     )
+            // }
+            // ProxyType::Nomination => {
+            //     matches!(
+            //         c,
+            //         RuntimeCall::Staking(pallet_staking::Call::nominate { .. })
+            //     )
+            // }
+            _ => true
+        }
+    }
+    fn is_superset(&self, o: &Self) -> bool {
+        // ProxyType::Nomination ⊆ ProxyType::Staking ⊆ ProxyType::NonTransfer ⊆ ProxyType::Any
+        match self {
+            ProxyType::Any => true,
+            ProxyType::NonTransfer => match o {
+                ProxyType::Any => false,
+                ProxyType::NonTransfer | ProxyType::Staking | ProxyType::Nomination => true,
+            },
+            ProxyType::Staking => match o {
+                ProxyType::Any | ProxyType::NonTransfer => false,
+                ProxyType::Staking | ProxyType::Nomination => true,
+            },
+            ProxyType::Nomination => match o {
+                ProxyType::Any | ProxyType::NonTransfer | ProxyType::Staking => false,
+                ProxyType::Nomination => true,
+            },
+        }
+    }
+}
+
+impl pallet_proxy::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    type RuntimeCall = RuntimeCall;
+    type Currency = Balances;
+    type ProxyType = ProxyType;
+    type ProxyDepositBase = ProxyDepositBase;
+    type ProxyDepositFactor = ProxyDepositFactor;
+    type MaxProxies = ConstU32<32>;
+    type WeightInfo = pallet_proxy::weights::SubstrateWeight<Runtime>;
+    type MaxPending = ConstU32<32>;
+    type CallHasher = BlakeTwo256;
+    type AnnouncementDepositBase = AnnouncementDepositBase;
+    type AnnouncementDepositFactor = AnnouncementDepositFactor;
+    type BlockNumberProvider = System;
+}
+
+impl proxy_wrapper::Config for Runtime {}

@@ -51,6 +51,8 @@ sp-version = { features = ["serde"], workspace = true }
 pallet-uniques.workspace = true
 pallet-migrations.workspace = true
 pallet-template-runtime-api.workspace = true
+pallet-proxy.workspace = true
+proxy-wrapper.workspace = true
 
 [build-dependencies]
 substrate-wasm-builder = { optional = true, workspace = true, default-features = true }
@@ -72,6 +74,7 @@ std = [
 	"pallet-grandpa/std",
 	"pallet-sudo/std",
 	"pallet-template/std",
+	"proxy-wrapper/std",
 	"pallet-example-offchain-worker/std",
 	"pallet-assets/std",
 	"pallet-timestamp/std",
@@ -96,7 +99,8 @@ std = [
 	"substrate-wasm-builder",
 	"pallet-uniques/std",
 	"pallet-migrations/std",
-	"pallet-template-runtime-api/std"
+	"pallet-template-runtime-api/std",
+	"pallet-proxy/std"
 ]
 
 runtime-benchmarks = [

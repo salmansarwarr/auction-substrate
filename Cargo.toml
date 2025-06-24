@@ -12,13 +12,15 @@ members = [
     "pallets/template/rpc",
     "pallets/template/runtime-api",
     "pallets/template/primitives",
-    "runtime", "rust-api",
+    "runtime", "rust-api", "pallets/proxy-wrapper",
+    "pallets/proxy-wrapper"
 ]
 resolver = "2"
 
 [workspace.dependencies]
 solochain-template-runtime = { path = "./runtime", default-features = false }
 pallet-template = { path = "./pallets/template", default-features = false }
+proxy-wrapper =  { path = "./pallets/proxy-wrapper", default-features = false }
 pallet-example-offchain-worker = { path = "./pallets/offchain_worker", default-features = false }
 clap = { version = "4.5.13" }
 frame-benchmarking-cli = { version = "47.0.0", default-features = false }
@@ -89,3 +91,4 @@ pallet-template-runtime-api = { path = "pallets/template/runtime-api", default-f
 pallet-template-rpc = { path = "pallets/template/rpc" }
 parity-scale-codec = { version = "3", features = ["derive"] }
 hex = "0.4"
+pallet-proxy = {version = "40.1.0", default-features = false}
