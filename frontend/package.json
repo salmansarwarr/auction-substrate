@@ -1,0 +1,22 @@
+{
+  "name": "frontend",
+  "version": "1.0.0",
+  "description": "",
+  "main": "script.js",
+  "type": "module",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": "vite"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@polkadot/api": "^16.2.2",
+    "@polkadot/extension-dapp": "^0.60.1",
+    "vite": "^7.0.0"
+  },
+  "devDependencies": {
+    "http-server": "^14.1.1"
+  }
+}

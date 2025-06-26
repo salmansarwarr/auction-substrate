@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NFT Auction House</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎨 NFT Auction House</h1>
+            <p>Discover, bid, and trade unique digital assets</p>
+        </div>
+
+        <div class="controls">
+            <button class="btn btn-primary" id="connectBtn">Connect Wallet</button>
+            <button class="btn btn-success" id="listNftBtn" disabled>List NFT for Auction</button>
+            <button class="btn" id="refreshBtn">🔄 Refresh Auctions</button>
+            <div id="connectionStatus" class="connection-status disconnected">
+                Wallet Disconnected
+            </div>
+        </div>
+
+        <div id="auctionsContainer" class="auctions-grid">
+            <div class="loading">
+                <h3>Loading auctions...</h3>
+                <p>Please connect your wallet to view auctions</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- List NFT Modal -->
+    <div id="listNftModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>List NFT for Auction</h2>
+                <span class="close" id="closeModal">&times;</span>
+            </div>
+            <form id="listNftForm">
+                <div class="form-group">
+                    <label for="collectionId">Collection ID:</label>
+                    <input type="number" id="collectionId" required>
+                </div>
+                <div class="form-group">
+                    <label for="itemId">Item ID:</label>
+                    <input type="number" id="itemId" required>
+                </div>
+                <button type="submit" class="btn btn-primary" style="width: 100%;">
+                    List NFT for Auction
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <script type="module" src="script.js"></script>
+</body>
+</html>
