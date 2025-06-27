@@ -1,0 +1,56 @@
+{
+  "name": "salman",
+  "address": "5FsQAnzBVq5uWnH4oi8ruV8pCjq81mg8EfKUPskhbdxcCUeq",
+  "publicKey": {
+    "0": 168,
+    "1": 81,
+    "2": 177,
+    "3": 99,
+    "4": 169,
+    "5": 255,
+    "6": 11,
+    "7": 134,
+    "8": 43,
+    "9": 209,
+    "10": 60,
+    "11": 115,
+    "12": 97,
+    "13": 141,
+    "14": 24,
+    "15": 222,
+    "16": 133,
+    "17": 23,
+    "18": 145,
+    "19": 195,
+    "20": 41,
+    "21": 22,
+    "22": 142,
+    "23": 108,
+    "24": 200,
+    "25": 234,
+    "26": 216,
+    "27": 234,
+    "28": 3,
+    "29": 232,
+    "30": 200,
+    "31": 86
+  },
+  "mnemonic": "artist fan rather also abuse viable example satoshi vendor prosper glare repair",
+  "encoded": {
+    "encoded": "i37jxFAn6vKF8+cfvLanOC1+ZcTHqBRpbaCtcEcF9t4AgAAAAQAAAAgAAADLDGkGPJbpdMo7Ui5g/UXNPs1Qa4P5Sa+fh/R+AsJP9HUJAxqnrB62ZGZE1IQUDs0lTw7xZzqNxE9FNUYRhhMJ0Cvd5DI8304c63E6vvvFPU5fJW2nwT/nH2AyPHFO8tYD6TuwQkUJlHr/zaFXLOcK4WANAe8V84rurFP11mxdt0vfEPTv6HIZvpew4WIQcWd6mK0u8jbltN37Nt9f",
+    "encoding": {
+      "content": [
+        "pkcs8",
+        "sr25519"
+      ],
+      "type": [
+        "scrypt",
+        "xsalsa20-poly1305"
+      ],
+      "version": "3"
+    },
+    "address": "5FsQAnzBVq5uWnH4oi8ruV8pCjq81mg8EfKUPskhbdxcCUeq",
+    "meta": {}
+  },
+  "created": "2025-06-26T13:35:39.671Z"
+}
