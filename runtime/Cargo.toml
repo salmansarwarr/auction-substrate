@@ -27,6 +27,7 @@ pallet-balances.workspace = true
 pallet-grandpa.workspace = true
 pallet-sudo.workspace = true
 pallet-template.workspace = true
+hardware-info.workspace = true
 pallet-example-offchain-worker.workspace = true
 pallet-timestamp.workspace = true
 pallet-transaction-payment-rpc-runtime-api.workspace = true
@@ -53,6 +54,8 @@ pallet-migrations.workspace = true
 pallet-template-runtime-api.workspace = true
 pallet-proxy.workspace = true
 proxy-wrapper.workspace = true
+profiles.workspace = true
+pallet-identity.workspace = true
 
 [build-dependencies]
 substrate-wasm-builder = { optional = true, workspace = true, default-features = true }
@@ -74,7 +77,9 @@ std = [
 	"pallet-grandpa/std",
 	"pallet-sudo/std",
 	"pallet-template/std",
+	"hardware-info/std",
 	"proxy-wrapper/std",
+	"profiles/std",
 	"pallet-example-offchain-worker/std",
 	"pallet-assets/std",
 	"pallet-timestamp/std",
@@ -100,7 +105,8 @@ std = [
 	"pallet-uniques/std",
 	"pallet-migrations/std",
 	"pallet-template-runtime-api/std",
-	"pallet-proxy/std"
+	"pallet-proxy/std",
+	"pallet-identity/std"
 ]
 
 runtime-benchmarks = [

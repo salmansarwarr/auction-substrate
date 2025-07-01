@@ -28,21 +28,22 @@ use frame_support::{
 	derive_impl, parameter_types,
 	traits::{AsEnsureOriginWithArg, ConstBool, ConstU128, ConstU32, ConstU64, ConstU8, VariantCountOf, Everything, InstanceFilter},
 	weights::{
-		constants::{RocksDbWeight, WEIGHT_REF_TIME_PER_SECOND},
-		IdentityFee, Weight,
+		constants::{RocksDbWeight, WEIGHT_REF_TIME_PER_SECOND}, Weight,
 	},
 };
 use frame_system::{limits::{BlockLength, BlockWeights}, EnsureRoot, EnsureSigned};
-use pallet_transaction_payment::{ConstFeeMultiplier, CurrencyAdapter, Multiplier};
+use pallet_transaction_payment::{ConstFeeMultiplier, Multiplier};
 use sp_consensus_aura::sr25519::AuthorityId as AuraId;
-use sp_runtime::{generic, Perbill, SaturatedConversion, RuntimeDebug, traits::BlakeTwo256 };
+use sp_runtime::{generic, Perbill, SaturatedConversion, RuntimeDebug, traits::BlakeTwo256, MultiSigner, MultiSignature };
 use sp_version::RuntimeVersion;
 use sp_core::sr25519::Signature;
 use frame_support::PalletId;
 use frame_support::traits::{Currency, OnUnbalanced, Imbalance};
 use frame_support::weights::ConstantMultiplier;
-
+use pallet_identity::legacy::IdentityInfo;
+use pallet_transaction_payment::CurrencyAdapter;
 use codec::{Encode, Decode, MaxEncodedLen};
+use crate::Timestamp;
 
 use crate::UncheckedExtrinsic;
 
@@ -530,3 +531,62 @@ impl pallet_proxy::Config for Runtime {
 }
 
 impl proxy_wrapper::Config for Runtime {}
+
+parameter_types! {
+    pub const HardwareInfoInterval: u32 = 10; // Collect every 10 blocks
+    pub const MaxHardwareHistoryEntries: u32 = 100;
+    pub const HardwarePalletId: PalletId = PalletId(*b"hrdwrinf");
+}
+
+impl hardware_info::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    type HardwareInfoInterval = HardwareInfoInterval;
+    type MaxHardwareHistoryEntries = MaxHardwareHistoryEntries;
+    type PalletId = HardwarePalletId;
+    type WeightInfo = hardware_info::weights::SubstrateWeight<Runtime>;
+}
+
+parameter_types! {
+	pub const BasicDeposit: Balance = 258 * 12/1000;
+	pub const ByteDeposit: Balance = 66 * 12/1000;
+	pub const SubAccountDeposit: Balance = 53 * 12/1000;
+	pub const MaxSubAccounts: u32 = 100;
+	pub const MaxAdditionalFields: u32 = 100;
+	pub const MaxRegistrars: u32 = 20;
+    pub const UsernameDeposit: Balance = 100 * 12/1000;
+
+    pub const UsernameGracePeriod: BlockNumber = 30 * (((60_000/1000) * 60) * 24);
+}
+
+impl pallet_identity::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
+	type Currency = Balances;
+	type BasicDeposit = BasicDeposit;
+	type ByteDeposit = ByteDeposit;
+	type SubAccountDeposit = SubAccountDeposit;
+	type MaxSubAccounts = MaxSubAccounts;
+	type MaxRegistrars = MaxRegistrars;
+	type Slashed = (); //Treasury;
+	type ForceOrigin = EnsureRoot<AccountId>;
+	type RegistrarOrigin = EnsureRoot<AccountId>;
+	type OffchainSignature = MultiSignature;
+	type SigningPublicKey = MultiSigner;
+	type UsernameAuthorityOrigin = EnsureRoot<AccountId>;
+	type PendingUsernameExpiration = ConstU32<{ 7 * (((60_000/1000) * 60) * 24) }>;
+	type MaxSuffixLength = ConstU32<7>;
+	type MaxUsernameLength = ConstU32<32>;
+	type WeightInfo = pallet_identity::weights::SubstrateWeight<Self>;
+	type IdentityInformation = IdentityInfo<MaxAdditionalFields>;
+    type UsernameGracePeriod = UsernameGracePeriod;
+    type UsernameDeposit = UsernameDeposit;
+}
+
+parameter_types! {
+    pub const MaxProfileUsernameLength: u32 = 32;
+}
+
+impl profiles::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    type TimeProvider = Timestamp;
+    type MaxUsernameLength = MaxProfileUsernameLength;
+}

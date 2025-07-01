@@ -248,4 +248,13 @@ mod runtime {
 
 	#[runtime::pallet_index(12)]
 	pub type ProxyWrapper = proxy_wrapper;
+
+	#[runtime::pallet_index(13)]
+	pub type HardwareInfo = hardware_info;
+
+	#[runtime::pallet_index(14)]
+	pub type PalletIdentity = pallet_identity;
+
+	#[runtime::pallet_index(15)]
+	pub type Profiles = profiles;
 }
